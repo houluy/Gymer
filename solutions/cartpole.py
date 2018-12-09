@@ -40,6 +40,7 @@ class DQN:
 
 class Experience:
     __slots__ = ('observation', 'reward', 'n')
+
     def __init__(self, *args):
         self.observation, self.reward, self.n = args
 
@@ -79,7 +80,7 @@ class CartPoleQ:
         self.actions = list(range(self.env.action_space.n))
         self.states = list(range(self.env.observation_space.shape[0]))
         self.Q = {
-            k:np.random.random(1) for k in product(self.actions, self.states)
+            k: np.random.random(1) for k in product(self.actions, self.states)
         }
         self.episodes = 10000
         self.update_paces = 20
@@ -92,7 +93,7 @@ class CartPoleQ:
         observation = self.env.reset()
         for episode in range(self.episodes):
             self.env.render()
-            action = 0
+            action = self.epsilon_greedy(observation)
             state = observation.copy()
             observation, reward, done, info = self.env.step(action)
             e = Experience(state, reward, observation)
@@ -103,12 +104,20 @@ class CartPoleQ:
             self.pool.append((state, reward, done, observation))
             if episode % self.experience_size == 0:
                 batch = self.pool[:]
-
+                _, loss = self.sess.run([self.nets.train, self.nets.loss],
+                                        feed_dict={
+                                            self.nets.ipt: batch.observation,
+                                            self.nets.reward: batch.reward
+                                        })
         self.env.close()
         self.sess.close()
 
-    def epsilon_greedy(self):
-        pass
+    def epsilon_greedy(self, observation):
+        rand = np.random.random(1)
+        if rand > self.epsilon:
+            return self.env.action_space.sample()
+        else:
+            return self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: observation}).argmax()
 
 
 if __name__ == '__main__':
