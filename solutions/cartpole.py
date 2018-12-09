@@ -31,7 +31,7 @@ class DQN:
             es = tf.nn.softmax(tf.matmul(weights2, es))
             self.networks[n] = es
         self.loss = tf.losses.mean_squared_error(
-            self.reward + self.gamma * self.networks["target"].max(),
+            self.reward,
             self.networks["estimation"].max()
         )
         self.alpha = 0.3
@@ -39,15 +39,15 @@ class DQN:
 
 
 class Experience:
-    __slots__ = ('observation', 'reward', 'done', 'n')
+    __slots__ = ('observation', 'reward', 'n')
     def __init__(self, *args):
-        self.observation, self.reward, self.done, self.n = args
+        self.observation, self.reward, self.n = args
 
 
 class ExperiencePool(MutableSequence):
     def __init__(self, size):
         self.size = size
-        self.pool = [0 for _ in range(self.size)]
+        self.pool = [Experience(0 for __ in range(3)) for _ in range(self.size)]
 
     def __len__(self):
         return len(self.pool)
@@ -71,10 +71,6 @@ class ExperiencePool(MutableSequence):
     def _shuffle(self):
         shuffle(self.pool)
 
-    def batch(self, target, sess):
-        for e in self:
-            if e
-
 
 class CartPoleQ:
     def __init__(self):
@@ -90,6 +86,7 @@ class CartPoleQ:
         self.experience_size = 128
         self.epsilon = 0.5
         self.pool = ExperiencePool(self.experience_size)
+        self.nets = DQN()
 
     def train(self):
         observation = self.env.reset()
@@ -98,17 +95,20 @@ class CartPoleQ:
             action = 0
             state = observation.copy()
             observation, reward, done, info = self.env.step(action)
-            self.pool.append((state, reward, done, observation))
+            e = Experience(state, reward, observation)
             if done:
-                self.env.reset()
+                observation = self.env.reset()
+            else:
+                e.reward += self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: state})
+            self.pool.append((state, reward, done, observation))
             if episode % self.experience_size == 0:
                 batch = self.pool[:]
-
 
         self.env.close()
         self.sess.close()
 
     def epsilon_greedy(self):
+        pass
 
 
 if __name__ == '__main__':
