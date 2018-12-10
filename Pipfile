@@ -10,6 +10,7 @@ gym = "*"
 tensorflow = "*"
 pyglet = "*"
 numpy = "*"
+coverage = "*"
 
 [requires]
 python_version = "3.6"

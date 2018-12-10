@@ -2,7 +2,7 @@ import gym
 import numpy as np
 import tensorflow as tf
 from itertools import product
-from collections.abc import MutableSequence
+from collections.abc import Sequence, MutableSequence, Iterable
 from random import shuffle
 tf.reset_default_graph()
 
@@ -11,6 +11,7 @@ class DQN:
     def __init__(self):
         self.ipt = tf.placeholder(name='input', shape=(None, 4), dtype=tf.float32)
         self.reward = tf.placeholder(name='reward', shape=(None, 1), dtype=tf.float32)
+        self.action = tf.placeholder(name='action', shape=(None, 2), dtype=tf.float32)
         self.gamma = 0.9
         networks = ["target", "estimation"]
         self.networks = {}
@@ -32,45 +33,64 @@ class DQN:
             self.networks[n] = es
         self.loss = tf.losses.mean_squared_error(
             self.reward,
-            self.networks["estimation"].max()
+            tf.gather_nd(self.networks["estimation"], self.action)
         )
         self.alpha = 0.3
         self.train = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
 
 
-class Experience:
-    __slots__ = ('observation', 'reward', 'n')
+class Experience(Iterable):
+    __slots__ = ('observation', 'action', 'reward', 'n')
 
     def __init__(self, *args):
-        self.observation, self.reward, self.n = args
+        self.observation, self.action, self.reward, self.n = tuple(args)
+
+    def __iter__(self):
+        yield self.observation
+        yield self.action
+        yield self.reward
+        yield self.n
 
 
 class ExperiencePool(MutableSequence):
     def __init__(self, size):
         self.size = size
-        self.pool = [Experience(0 for __ in range(3)) for _ in range(self.size)]
+        self.attr_num = 4
+        self.pool = [Experience(*tuple(0 for __ in range(self.attr_num))) for _ in range(self.size)]
+        self.actions = []
+        self.rewards = []
+        self.observations = []
+        self.n = []
+        self.tg = [self.observations, self.actions, self.rewards, self.n]
 
     def __len__(self):
         return len(self.pool)
 
     def __getitem__(self, index):
-        if len(self) >= self.size:
+        if isinstance(index, slice):
             self._shuffle()
-        v = self.pool[index]
-        del self[index]
+            self._dist()
+            return np.array(self.observations), np.array(self.actions), np.array(self.rewards), np.array(self.n)
+        v = tuple(self.pool[index])
         return np.array(v)
 
     def __setitem__(self, index, value):
-        self.pool[index] = Experience(value)
+        self.pool[index] = Experience(*tuple(value))
 
     def __delitem__(self, index):
         del self.pool[index]
 
     def insert(self, index, value):
-        self.pool.insert(index, Experience(value))
+        e = Experience(*value)
+        self.pool.insert(index, e)
 
     def _shuffle(self):
         shuffle(self.pool)
+
+    def _dist(self):
+        for p in self:
+            for tg, item in zip(self.tg, p):
+                tg.append(item)
 
 
 class CartPoleQ:
@@ -96,18 +116,19 @@ class CartPoleQ:
             action = self.epsilon_greedy(observation)
             state = observation.copy()
             observation, reward, done, info = self.env.step(action)
-            e = Experience(state, reward, observation)
+            e = Experience(state, action, reward, observation)
             if done:
                 observation = self.env.reset()
             else:
                 e.reward += self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: state})
-            self.pool.append((state, reward, done, observation))
+            self.pool.append((state, action, reward, observation))
             if episode % self.experience_size == 0:
                 batch = self.pool[:]
                 _, loss = self.sess.run([self.nets.train, self.nets.loss],
                                         feed_dict={
-                                            self.nets.ipt: batch.observation,
-                                            self.nets.reward: batch.reward
+                                            self.nets.ipt: batch.observations,
+                                            self.nets.action: batch.actions,
+                                            self.nets.reward: batch.rewards
                                         })
         self.env.close()
         self.sess.close()
