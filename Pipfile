@@ -11,6 +11,7 @@ tensorflow = "*"
 pyglet = "*"
 numpy = "*"
 coverage = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.6"

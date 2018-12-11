@@ -1,17 +1,17 @@
 import gym
 import numpy as np
 import tensorflow as tf
-from itertools import product
 from collections.abc import Sequence, MutableSequence, Iterable
 from random import shuffle
+import matplotlib.pyplot as plt
 tf.reset_default_graph()
 
 
 class DQN:
     def __init__(self):
         self.ipt = tf.placeholder(name='input', shape=(None, 4), dtype=tf.float32)
-        self.reward = tf.placeholder(name='reward', shape=(None, 1), dtype=tf.float32)
-        self.action = tf.placeholder(name='action', shape=(None, 2), dtype=tf.float32)
+        self.reward = tf.placeholder(name='reward', shape=(None,), dtype=tf.float32)
+        self.action = tf.placeholder(name='action', shape=(None, 2), dtype=tf.int32)
         self.gamma = 0.9
         networks = ["target", "estimation"]
         self.networks = {}
@@ -28,9 +28,10 @@ class DQN:
                 name=(n + 'bias'), shape=(128,), dtype=tf.float32,
                 initializer=tf.constant_initializer(0)
             )
-            es = tf.nn.relu(tf.matmul(weights1, self.ipt) + bias)
-            es = tf.nn.softmax(tf.matmul(weights2, es))
+            es = tf.nn.relu(tf.matmul(self.ipt, weights1) + bias)
+            es = tf.nn.softmax(tf.matmul(es, weights2))
             self.networks[n] = es
+
         self.loss = tf.losses.mean_squared_error(
             self.reward,
             tf.gather_nd(self.networks["estimation"], self.action)
@@ -56,11 +57,11 @@ class ExperiencePool(MutableSequence):
     def __init__(self, size):
         self.size = size
         self.attr_num = 4
-        self.pool = [Experience(*tuple(0 for __ in range(self.attr_num))) for _ in range(self.size)]
-        self.actions = []
-        self.rewards = []
-        self.observations = []
-        self.n = []
+        self.pool = [Experience(*tuple(0 for _ in range(self.attr_num))) for x in range(size)]
+        self.actions = [0 for _ in range(size)]
+        self.rewards = [0 for _ in range(size)]
+        self.observations = [0 for _ in range(size)]
+        self.n = [0 for _ in range(size)]
         self.tg = [self.observations, self.actions, self.rewards, self.n]
 
     def __len__(self):
@@ -70,17 +71,22 @@ class ExperiencePool(MutableSequence):
         if isinstance(index, slice):
             self._shuffle()
             self._dist()
-            return np.array(self.observations), np.array(self.actions), np.array(self.rewards), np.array(self.n)
+            return np.array(self.observations).reshape((self.size, 4)),\
+                   np.array(self.actions).reshape((self.size, 2)),\
+                   np.array(self.rewards).reshape((self.size,)),\
+                   np.array(self.n).reshape((self.size, 4))
         v = tuple(self.pool[index])
         return np.array(v)
 
     def __setitem__(self, index, value):
+        value[1] = [0, value[1]]
         self.pool[index] = Experience(*tuple(value))
 
     def __delitem__(self, index):
         del self.pool[index]
 
     def insert(self, index, value):
+        value[1] = [0, value[1]]
         e = Experience(*value)
         self.pool.insert(index, e)
 
@@ -88,9 +94,9 @@ class ExperiencePool(MutableSequence):
         shuffle(self.pool)
 
     def _dist(self):
-        for p in self:
+        for ind, p in enumerate(self):
             for tg, item in zip(self.tg, p):
-                tg.append(item)
+                tg[ind] = [item]
 
 
 class CartPoleQ:
@@ -99,37 +105,64 @@ class CartPoleQ:
         self.sess = tf.Session()
         self.actions = list(range(self.env.action_space.n))
         self.states = list(range(self.env.observation_space.shape[0]))
-        self.Q = {
-            k: np.random.random(1) for k in product(self.actions, self.states)
-        }
         self.episodes = 10000
         self.update_paces = 20
         self.experience_size = 128
         self.epsilon = 0.5
         self.pool = ExperiencePool(self.experience_size)
         self.nets = DQN()
+        self.sess.run(tf.global_variables_initializer())
 
     def train(self):
         observation = self.env.reset()
-        for episode in range(self.episodes):
+        episodes = []
+        endepisodes = []
+        losses = []
+        rewardarr = []
+        total_reward = 0
+        persistence = 0
+        plt.figure('Loss')
+        plt.ion()
+        for episode in range(1, self.episodes + 1):
+            persistence += 1
             self.env.render()
             action = self.epsilon_greedy(observation)
             state = observation.copy()
             observation, reward, done, info = self.env.step(action)
+            total_reward += reward
             e = Experience(state, action, reward, observation)
             if done:
                 observation = self.env.reset()
+                rewardarr.append(total_reward / persistence)
+                persistence = 0
+                endepisodes.append(episode)
             else:
-                e.reward += self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: state})
-            self.pool.append((state, action, reward, observation))
-            if episode % self.experience_size == 0:
+                e.reward += self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: state.reshape((1, 4))})
+            count = episode % self.experience_size
+            self.pool[count] = [state, action, reward, observation]
+            if count == 0:
                 batch = self.pool[:]
                 _, loss = self.sess.run([self.nets.train, self.nets.loss],
                                         feed_dict={
-                                            self.nets.ipt: batch.observations,
-                                            self.nets.action: batch.actions,
-                                            self.nets.reward: batch.rewards
+                                            self.nets.ipt: batch[0],
+                                            self.nets.action: batch[1],
+                                            self.nets.reward: batch[2]
                                         })
+                episodes.append(episode)
+                #rewardarr.append(total_reward)
+                losses.append(loss)
+                plt.cla()
+                plt.title('Interactive loss and total reward over episodes')
+                plt.xlabel('Episodes')
+                plt.ylabel('Loss')
+                plt.grid(True)
+                plt.plot(endepisodes, rewardarr, 'm+-', label='Instant loss')
+                #plt.plot(episodes, rewardarr, 'co-', label='Moving Average loss')
+                plt.legend()
+                plt.pause(0.01)
+            #if episode %
+        plt.ioff()
+        plt.show()
         self.env.close()
         self.sess.close()
 
@@ -138,10 +171,10 @@ class CartPoleQ:
         if rand > self.epsilon:
             return self.env.action_space.sample()
         else:
-            return self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: observation}).argmax()
+            return self.sess.run(self.nets.networks['target'],
+                                 feed_dict={self.nets.ipt: observation.reshape((1, 4))}).argmax()
 
 
 if __name__ == '__main__':
     c = CartPoleQ()
-    print(c.Q)
     c.train()
