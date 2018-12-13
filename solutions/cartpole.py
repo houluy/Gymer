@@ -1,8 +1,9 @@
 import gym
 import numpy as np
 import tensorflow as tf
-from collections.abc import Sequence, MutableSequence, Iterable
-from random import shuffle
+from collections.abc import Iterable
+from collections import deque
+import random
 import matplotlib.pyplot as plt
 tf.reset_default_graph()
 
@@ -39,64 +40,29 @@ class DQN:
         self.alpha = 0.3
         self.train = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
 
+    @staticmethod
+    def copy_model(sess):
+        m1 = [t for t in tf.trainable_variables() if t.name.startswith('estimation')]
+        m1 = sorted(m1, key=lambda v: v.name)
+        m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
+        m2 = sorted(m2, key=lambda v: v.name)
+
+        ops = []
+        for t1, t2 in zip(m1, m2):
+            ops.append(t2.assign(t1))
+        sess.run(ops)
+
 
 class Experience(Iterable):
-    __slots__ = ('observation', 'action', 'reward', 'n')
+    __slots__ = ('observation', 'action', 'reward')
 
     def __init__(self, *args):
-        self.observation, self.action, self.reward, self.n = tuple(args)
+        self.observation, self.action, self.reward = tuple(args)
 
     def __iter__(self):
         yield self.observation
         yield self.action
         yield self.reward
-        yield self.n
-
-
-class ExperiencePool(MutableSequence):
-    def __init__(self, size):
-        self.size = size
-        self.attr_num = 4
-        self.pool = [Experience(*tuple(0 for _ in range(self.attr_num))) for x in range(size)]
-        self.actions = [0 for _ in range(size)]
-        self.rewards = [0 for _ in range(size)]
-        self.observations = [0 for _ in range(size)]
-        self.n = [0 for _ in range(size)]
-        self.tg = [self.observations, self.actions, self.rewards, self.n]
-
-    def __len__(self):
-        return len(self.pool)
-
-    def __getitem__(self, index):
-        if isinstance(index, slice):
-            self._shuffle()
-            self._dist()
-            return np.array(self.observations).reshape((self.size, 4)),\
-                   np.array(self.actions).reshape((self.size, 2)),\
-                   np.array(self.rewards).reshape((self.size,)),\
-                   np.array(self.n).reshape((self.size, 4))
-        v = tuple(self.pool[index])
-        return np.array(v)
-
-    def __setitem__(self, index, value):
-        value[1] = [0, value[1]]
-        self.pool[index] = Experience(*tuple(value))
-
-    def __delitem__(self, index):
-        del self.pool[index]
-
-    def insert(self, index, value):
-        value[1] = [0, value[1]]
-        e = Experience(*value)
-        self.pool.insert(index, e)
-
-    def _shuffle(self):
-        shuffle(self.pool)
-
-    def _dist(self):
-        for ind, p in enumerate(self):
-            for tg, item in zip(self.tg, p):
-                tg[ind] = [item]
 
 
 class CartPoleQ:
@@ -106,65 +72,115 @@ class CartPoleQ:
         self.actions = list(range(self.env.action_space.n))
         self.states = list(range(self.env.observation_space.shape[0]))
         self.episodes = 10000
-        self.update_paces = 20
-        self.experience_size = 128
-        self.epsilon = 0.5
-        self.pool = ExperiencePool(self.experience_size)
+        self.update_episodes = 20
+        self.save_episodes = 50
+        self.replay_episode = 128
+        self.experience_size = 256
+        self.pool = deque(maxlen=self.experience_size)
+        self.global_step = tf.Variable(0, trainable=False)
+        self.epsilon_decay = 0.9
+        self.epsilon_base = 0.9
+        self.epsilon_span = 100
+        self._epsilon = tf.train.exponential_decay(
+            self.epsilon_base,
+            self.global_step,
+            self.epsilon_span,
+            self.epsilon_decay,
+            staircase=True
+        )
+        self.gamma = 0.9
         self.nets = DQN()
         self.sess.run(tf.global_variables_initializer())
+        self.savefile = 'models/cartpole.ckpt'
+        self.saver = tf.train.Saver()
 
-    def train(self):
+    @property
+    def epsilon(self):
+        return self.sess.run(self._epsilon)
+
+    def train(self, show=False, load=False):
+        if load:
+            try:
+                self.load()
+            except Exception as e:
+                print(e)
         observation = self.env.reset()
         episodes = []
-        endepisodes = []
         losses = []
-        rewardarr = []
-        total_reward = 0
         persistence = 0
-        plt.figure('Loss')
-        plt.ion()
+        if show:
+            plt.figure('Loss')
+            plt.ion()
         for episode in range(1, self.episodes + 1):
             persistence += 1
             self.env.render()
             action = self.epsilon_greedy(observation)
             state = observation.copy()
             observation, reward, done, info = self.env.step(action)
-            total_reward += reward
-            e = Experience(state, action, reward, observation)
+            if reward > 0:
+                reward = 0.1
+            else:
+                reward = -1.0
+            e = Experience(state, action, reward)
+            self.sess.run(tf.assign(self.global_step, episode))
             if done:
                 observation = self.env.reset()
-                rewardarr.append(total_reward / persistence)
-                persistence = 0
-                endepisodes.append(episode)
             else:
-                e.reward += self.sess.run(self.nets.networks['target'], feed_dict={self.nets.ipt: state.reshape((1, 4))})
-            count = episode % self.experience_size
-            self.pool[count] = [state, action, reward, observation]
+                target = self.sess.run(
+                    self.nets.networks['target'],
+                    feed_dict={self.nets.ipt: observation.reshape((1, 4))}
+                )
+                e.reward = e.reward + self.gamma * target.max()
+            self.pool.append(e)
+            count = episode % self.replay_episode
             if count == 0:
-                batch = self.pool[:]
+                state_batch, action_batch, reward_batch = self.minibatch()
                 _, loss = self.sess.run([self.nets.train, self.nets.loss],
                                         feed_dict={
-                                            self.nets.ipt: batch[0],
-                                            self.nets.action: batch[1],
-                                            self.nets.reward: batch[2]
+                                            self.nets.ipt: state_batch,
+                                            self.nets.action: action_batch,
+                                            self.nets.reward: reward_batch
                                         })
                 episodes.append(episode)
-                #rewardarr.append(total_reward)
                 losses.append(loss)
-                plt.cla()
-                plt.title('Interactive loss and total reward over episodes')
-                plt.xlabel('Episodes')
-                plt.ylabel('Loss')
-                plt.grid(True)
-                plt.plot(endepisodes, rewardarr, 'm+-', label='Instant loss')
-                #plt.plot(episodes, rewardarr, 'co-', label='Moving Average loss')
-                plt.legend()
-                plt.pause(0.01)
-            #if episode %
-        plt.ioff()
-        plt.show()
+                if show:
+                    self.show_loss(episodes, losses)
+            if episode % self.update_episodes:
+                self.nets.copy_model(self.sess)
+            if episode % self.save_episodes:
+                self.save()
+        if show:
+            plt.ioff()
+            plt.show()
         self.env.close()
         self.sess.close()
+
+    def test(self):
+        pass
+
+    def show_loss(self, episodes, losses):
+        plt.cla()
+        plt.title('Interactive loss and total reward over episodes')
+        plt.xlabel('Episodes')
+        plt.ylabel('Loss')
+        plt.grid(True)
+        plt.plot(episodes, losses, 'm+-', label='Instant loss')
+        # plt.plot(episodes, rewardarr, 'co-', label='Moving Average loss')
+        plt.legend()
+        plt.pause(0.01)
+
+    def minibatch(self):
+        state_batch = [0 for _ in range(self.experience_size)]
+        action_batch = [0 for _ in range(self.experience_size)]
+        reward_batch = [0 for _ in range(self.experience_size)]
+        for ind in range(self.experience_size):
+            e = random.choice(self.pool)
+            ie = iter(e)
+            state_batch[ind] = next(ie)
+            action = next(ie)
+            action_batch[ind] = [0, action]
+            reward_batch[ind] = next(ie)
+        return np.array(state_batch), np.array(action_batch), np.array(reward_batch)
 
     def epsilon_greedy(self, observation):
         rand = np.random.random(1)
@@ -174,7 +190,20 @@ class CartPoleQ:
             return self.sess.run(self.nets.networks['target'],
                                  feed_dict={self.nets.ipt: observation.reshape((1, 4))}).argmax()
 
+    def greedy_policy(self, observation):
+        return self.sess.run(self.nets.networks['target'],
+                             feed_dict={self.nets.ipt: observation.reshape((1, 4))}).argmax()
+
+    def random_policy(self):
+        return self.env.action_space.sample()
+
+    def save(self):
+        self.saver.save(self.sess, self.savefile)
+
+    def load(self):
+        self.saver.restore(self.sess, self.savefile)
+
 
 if __name__ == '__main__':
     c = CartPoleQ()
-    c.train()
+    c.train(load=True)
