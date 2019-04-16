@@ -7,11 +7,12 @@ verify_ssl = true
 
 [packages]
 gym = "*"
-tensorflow = "*"
+tensorflow = "==1.13.1"
 pyglet = "*"
 numpy = "*"
 coverage = "*"
 matplotlib = "*"
+tensorboard = "==1.13.1"
 
 [requires]
 python_version = "3.6"

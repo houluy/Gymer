@@ -3,22 +3,36 @@ from itertools import chain
 from collections import namedtuple
 from collections.abc import MutableSequence
 import numpy as np
-#import sklearn.preprocessing as preprocessing
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+import pathlib
 
-from config import config
-from src.parameters import State, Action
-from src.noise import OUNoise
+from solutions.algorithms.ddpg.noise import OUNoise
+from solutions.algorithms.algo import Algo
 
 FCLayer = namedtuple('FCLayer', (
 'name', 'layer', 'shape', 'regularizer', 'activation'
 ))
 
 
-class DeepDeterministicPolicyGradient:
-    def __init__(self, state_shape, action_shape):
+class DeepDeterministicPolicyGradient(Algo):
+    def __init__(
+        self,
+        state_shape,
+        action_shape,
+        batch_size=128,
+        pool_size=1000,
+        info_moment=100,
+        save_round=100,
+        train_round=2e5,
+    ):
+        super().__init__(
+            pool_size=pool_size,
+            batch_size=batch_size,
+            train_round=train_round,
+            info_moment=info_moment,
+            save_round=save_round,
+        )
         tf.reset_default_graph()
-        self.batch_size = config.batch_size
         self.state_shape = state_shape
         self.actor_opt_shape = self.action_shape = action_shape
         self.reward_shape = 1
@@ -74,12 +88,10 @@ class DeepDeterministicPolicyGradient:
         self.actor_model = self.build_model(
             self.actor_input,
             self.actor_layers,
-            'actor'
         )
         self.critic_model = self.build_model(
             [self.critic_state_input, self.critic_action_input],
             self.critic_layers,
-            'critic'
         )
         self.actor_target_model = self.build_model(
             self.actor_input,
@@ -88,7 +100,6 @@ class DeepDeterministicPolicyGradient:
         self.critic_target_model = self.build_model(
             [self.critic_state_input, self.critic_action_input],
             self.critic_target_layers,
-            'critic'
         )
         self.sess = tf.Session()
         self.critic_loss = tf.reduce_mean(tf.square(self.critic_Q_input - self.critic_model))
@@ -114,6 +125,8 @@ class DeepDeterministicPolicyGradient:
         self.actor_j_record = []
         self._copy_weights('critic', 'target_critic')
         self._copy_weights('actor', 'target_actor')
+        self.saver = tf.train.Saver()
+        self.save_file = pathlib.Path(__file__).parent.parent.parent / pathlib.Path('models/cartpole/ddpg')
 
     def _build_layer(self, ipt_layer, opt_layer):
         with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
@@ -151,37 +164,13 @@ class DeepDeterministicPolicyGradient:
             tf.add_to_collection('{}-losses'.format(model_name), weights_loss)
         return weights, biases
 
-    def build_model(self, ipt, layers, typ='actor'):
+    def build_model(self, ipt, layers):
         if isinstance(ipt, MutableSequence):
             current = tf.concat(ipt, axis=1)
         else:
             current = ipt
         for layer in layers:
             current = self._build_layer(current, layer)
-        if typ == 'actor':
-            output = []
-            for i in range(self.action_typ):
-                if i == 0:
-                    output.append(tf.nn.softmax(
-                        tf.slice(
-                            current,
-                            [0, 0],
-                            [-1, self.K]
-                        ),
-                        axis=1
-                    ))
-                else:
-                    output.append(
-                        tf.nn.softmax(
-                            tf.slice(
-                                current,
-                                [0, self.K + (i - 1) * self.action_shape_per_typ],
-                                [-1, self.action_shape_per_typ]
-                            ),
-                            axis=1
-                        )
-                    )
-            current = tf.concat(output, axis=1)
         return current
 
     def _copy_weights(self, src_name, dest_name):
@@ -201,52 +190,34 @@ class DeepDeterministicPolicyGradient:
         except AttributeError:
             print('Something wrong before the session was created')
 
-    def _batch_process(self, minibatch):
-        batch_state = []
-        batch_action = []
-        batch_reward = []
-        batch_done = []
-        batch_next_state = []
-        for exp in minibatch:
-            state = self._state_process(exp.state)
-            batch_state.append(state)
-            batch_next_state.append(self._state_process(exp.next_state))
-            action = list(chain(
-                exp.action.cache_ratio,
-                exp.action.v2i_bandwidth,
-                exp.action.v2v_bandwidth,
-            ))
-            batch_action.append(action)
-            batch_reward.append(exp.reward)
-            batch_done.append(exp.done)
-        return np.array(batch_state), np.array(batch_action), np.array([batch_reward]).reshape(self.batch_size, 1), np.array(batch_next_state), np.array(batch_done)
+    # def _batch_process(self, minibatch):
+    #     batch_state = []
+    #     batch_action = []
+    #     batch_reward = []
+    #     batch_done = []
+    #     batch_next_state = []
+    #     for exp in minibatch:
+    #         state = self._state_process(exp.state)
+    #         batch_state.append(state)
+    #         batch_next_state.append(self._state_process(exp.next_state))
+    #         action = list(chain(
+    #             exp.action.cache_ratio,
+    #             exp.action.v2i_bandwidth,
+    #             exp.action.v2v_bandwidth,
+    #         ))
+    #         batch_action.append(action)
+    #         batch_reward.append(exp.reward)
+    #         batch_done.append(exp.done)
+    #     return np.array(batch_state), np.array(batch_action), np.array([batch_reward]).reshape(self.batch_size, 1), np.array(batch_next_state), np.array(batch_done)
 
     @staticmethod
     def softmax(x):
         """Compute softmax values for each sets of scores in x."""
         return np.exp(x) / np.sum(np.exp(x), axis=0)
 
-    @staticmethod
-    def _state_process(state):
-        #speed = preprocessing.normalize([state.request_vehicle_speed + state.counter_vehicle_speed])
-        position = preprocessing.normalize([state.request_vehicle_position + state.counter_vehicle_position])
-        remain = preprocessing.normalize([state.request_vehicle_v2v_remain + state.request_vehicle_v2i_remain])
-        #r2c = preprocessing.normalize([state.request_to_counter])
-        return np.concatenate([position, remain], axis=1).flatten()
+    def train(self, env):
 
-    def _action_process(self, action):
-        cache_ratio = self.softmax(action[0, :self.K])
-        v2i_bandwidth = self.softmax(action[0, self.K:self.K + self.N])
-        v2v_bandwidth = self.softmax(action[0, self.K + self.N:])
-
-        return Action(
-            cache_ratio=cache_ratio,
-            v2i_bandwidth=v2i_bandwidth,
-            v2v_bandwidth=v2v_bandwidth
-        )
-
-    def train(self, minibatch, train_round):
-        batch_state, batch_action, batch_reward, batch_next_state, batch_done = self._batch_process(minibatch)
+        batch_state, batch_action, batch_reward, batch_next_state, batch_done = minibatch
         batch_next_action = self.sess.run(self.actor_target_model, feed_dict={
             self.actor_input: batch_next_state,
         })
@@ -291,27 +262,25 @@ class DeepDeterministicPolicyGradient:
         # Update target model
         self.sess.run([self.actor_target_update, self.critic_target_update])
         self.critic_loss_record.append(critic_loss)
-        if not (train_round % 1):
+        if not (train_round % self.info_moment):
             print(f'Current training round: {train_round}')
+        if not (train_round % self.save_round):
+            self.saver.save(self.sess, self.save_file)
         return critic_loss
 
     def __call__(self, state, train=False):
-        state = self._state_process(state)
         action = self.sess.run(self.actor_model, feed_dict={
-            self.actor_input: np.array(state).reshape((1, self.state_shape))
+            self.actor_input: state.reshape((1, self.state_shape))
         })
         if train:
-            return self._action_process(action + self.exploration_noise.noise())
+            return action + self.exploration_noise.noise()
         else:
-            return self._action_process(action)
+            return action
 
     def noise_action(self, state):
         return self(state) + self.exploration_noise.noise()
 
-    def show_loss(self):
-        plt.figure()
-        plt.plot(self.critic_loss_record, label='Loss of Critic Networks')
-        # np.savetxt('Loss.csv', np.array(self.critic_loss_record))
-        plt.legend()
-        plt.title('Training process')
-        plt.show()
+
+if __name__ == '__main__':
+    ddpg = DeepDeterministicPolicyGradient(5, 5)
+

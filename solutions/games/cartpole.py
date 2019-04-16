@@ -1,68 +1,55 @@
 import gym
 import numpy as np
 import tensorflow as tf
-from collections.abc import Iterable
 from collections import deque
 import random
 import matplotlib.pyplot as plt
-tf.reset_default_graph()
 
+from solutions.algorithms.ddpg import DeepDeterministicPolicyGradient
 
-class DQN:
-    def __init__(self):
-        self.ipt = tf.placeholder(name='input', shape=(None, 4), dtype=tf.float32)
-        self.reward = tf.placeholder(name='reward', shape=(None,), dtype=tf.float32)
-        self.action = tf.placeholder(name='action', shape=(None, 2), dtype=tf.int32)
-        self.gamma = 0.9
-        networks = ["target", "estimation"]
-        self.networks = {}
-        for n in networks:
-            weights1 = tf.get_variable(
-                name=(n + 'weight'), shape=(4, 128), dtype=tf.float32,
-                initializer=tf.truncated_normal_initializer(mean=0.0, stddev=1.0)
-            )
-            weights2 = tf.get_variable(
-                name=(n + 'weight2'), shape=(128, 2), dtype=tf.float32,
-                initializer=tf.truncated_normal_initializer(mean=0.0, stddev=1.0)
-            )
-            bias = tf.get_variable(
-                name=(n + 'bias'), shape=(128,), dtype=tf.float32,
-                initializer=tf.constant_initializer(0)
-            )
-            es = tf.nn.relu(tf.matmul(self.ipt, weights1) + bias)
-            es = tf.nn.softmax(tf.matmul(es, weights2))
-            self.networks[n] = es
-
-        self.loss = tf.losses.mean_squared_error(
-            self.reward,
-            tf.gather_nd(self.networks["estimation"], self.action)
-        )
-        self.alpha = 0.3
-        self.train = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
-
-    @staticmethod
-    def copy_model(sess):
-        m1 = [t for t in tf.trainable_variables() if t.name.startswith('estimation')]
-        m1 = sorted(m1, key=lambda v: v.name)
-        m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
-        m2 = sorted(m2, key=lambda v: v.name)
-
-        ops = []
-        for t1, t2 in zip(m1, m2):
-            ops.append(t2.assign(t1))
-        sess.run(ops)
-
-
-class Experience(Iterable):
-    __slots__ = ('observation', 'action', 'reward')
-
-    def __init__(self, *args):
-        self.observation, self.action, self.reward = tuple(args)
-
-    def __iter__(self):
-        yield self.observation
-        yield self.action
-        yield self.reward
+# class DQN:
+#     def __init__(self):
+#         self.ipt = tf.placeholder(name='input', shape=(None, 4), dtype=tf.float32)
+#         self.reward = tf.placeholder(name='reward', shape=(None,), dtype=tf.float32)
+#         self.action = tf.placeholder(name='action', shape=(None, 2), dtype=tf.int32)
+#         self.gamma = 0.9
+#         networks = ["target", "estimation"]
+#         self.networks = {}
+#         for n in networks:
+#             weights1 = tf.get_variable(
+#                 name=(n + 'weight'), shape=(4, 128), dtype=tf.float32,
+#                 initializer=tf.truncated_normal_initializer(mean=0.0, stddev=1.0)
+#             )
+#             weights2 = tf.get_variable(
+#                 name=(n + 'weight2'), shape=(128, 2), dtype=tf.float32,
+#                 initializer=tf.truncated_normal_initializer(mean=0.0, stddev=1.0)
+#             )
+#             bias = tf.get_variable(
+#                 name=(n + 'bias'), shape=(128,), dtype=tf.float32,
+#                 initializer=tf.constant_initializer(0)
+#             )
+#             es = tf.nn.relu(tf.matmul(self.ipt, weights1) + bias)
+#             es = tf.nn.softmax(tf.matmul(es, weights2))
+#             self.networks[n] = es
+#
+#         self.loss = tf.losses.mean_squared_error(
+#             self.reward,
+#             tf.gather_nd(self.networks["estimation"], self.action)
+#         )
+#         self.alpha = 0.3
+#         self.train = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+#
+#     @staticmethod
+#     def copy_model(sess):
+#         m1 = [t for t in tf.trainable_variables() if t.name.startswith('estimation')]
+#         m1 = sorted(m1, key=lambda v: v.name)
+#         m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
+#         m2 = sorted(m2, key=lambda v: v.name)
+#
+#         ops = []
+#         for t1, t2 in zip(m1, m2):
+#             ops.append(t2.assign(t1))
+#         sess.run(ops)
 
 
 class CartPoleQ:
@@ -89,10 +76,6 @@ class CartPoleQ:
             staircase=True
         )
         self.gamma = 0.9
-        self.nets = DQN()
-        self.sess.run(tf.global_variables_initializer())
-        self.savefile = 'models/cartpole.ckpt'
-        self.saver = tf.train.Saver()
 
     @property
     def epsilon(self):
