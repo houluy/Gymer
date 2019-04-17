@@ -1,10 +1,9 @@
-import gym
-from pprint import pprint
-env = gym.make('CartPole-v0')
+from solutions.algorithms.ddpg import DeepDeterministicPolicyGradient
+from solutions.games.cartpole import Cartpole
 
-observation = env.reset()
-for step in range(10):
-    env.render()
-    action = env.action_space.sample()
-    observation, reward, done, info = env.step(action)
-
+c = Cartpole()
+ddpg = DeepDeterministicPolicyGradient(
+    env=c,
+)
+ddpg.train()
+c.run(ddpg)
