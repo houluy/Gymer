@@ -4,6 +4,7 @@ from collections import namedtuple
 from collections.abc import MutableSequence
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 import pathlib
 
 from solutions.algorithms.ddpg.noise import OUNoise
@@ -124,7 +125,7 @@ class DeepDeterministicPolicyGradient(Algo):
         self._copy_weights('critic', 'target_critic')
         self._copy_weights('actor', 'target_actor')
         self.saver = tf.train.Saver()
-        self.save_file = pathlib.Path(__file__).parent.parent.parent / pathlib.Path('models/cartpole/ddpg/model.ckpt')
+        self.save_file = pathlib.Path(__file__).parent.parent.parent / pathlib.Path('models/cartpole/ddpg/model')
         try:
             self.saver.restore(self.sess, str(self.save_file))
         except ValueError:
@@ -232,7 +233,7 @@ class DeepDeterministicPolicyGradient(Algo):
                 self.experience_pool.append(Experience(state, action, reward, next_state, done))
                 size += 1
                 if size > self.batch_size:
-                    loss = self.train_with_batch(self.experience_pool.sample(self.batch_size))
+                    loss = self.train_with_batch(random.sample(self.experience_pool, self.batch_size))
                     self.lossarr.append(loss)
                 state = next_state
                 if not (e % self.info_moment):
