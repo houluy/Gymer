@@ -19,7 +19,7 @@ class Cartpole:
         return self.env.action_space.sample()
 
     def run(self, policy):
-        episodes = 10
+        episodes = 100
         for i in range(episodes):
             state = self.env.reset()
             self.env.render()
@@ -27,7 +27,6 @@ class Cartpole:
             while not done:
                 action = self.action_wrapper(policy(state))
                 next_state, reward, done, info = self.env.step(action)
-                print(state, action, next_state, reward, done, info)
                 state = next_state
                 self.env.render()
         self.env.close()

@@ -1,18 +1,12 @@
 import tensorflow as tf
 from itertools import chain
-from collections import namedtuple
-from collections.abc import MutableSequence
 import numpy as np
 import matplotlib.pyplot as plt
 import random
 import pathlib
 
 from solutions.algorithms.ddpg.noise import OUNoise
-from solutions.algorithms.algo import Algo, Experience
-
-FCLayer = namedtuple('FCLayer', (
-'name', 'layer', 'shape', 'regularizer', 'activation'
-))
+from solutions.algorithms.algo import Algo, Experience, FCLayer
 
 
 class DeepDeterministicPolicyGradient(Algo):
@@ -23,7 +17,7 @@ class DeepDeterministicPolicyGradient(Algo):
         pool_size=1000,
         info_moment=100,
         save_round=100,
-        train_round=2000,
+        train_round=200,
     ):
         super().__init__(
             env=env,
@@ -33,17 +27,15 @@ class DeepDeterministicPolicyGradient(Algo):
             info_moment=info_moment,
             save_round=save_round,
         )
-        tf.reset_default_graph()
         self.reward_shape = 1
+        self.done_shape = 1
         self.critic_opt_shape = 1
-        self.dropout = 0.5
         self.actor_learning_rate = 0.01
         self.critic_learning_rate = 0.01
         self.actor_decay = 0.01
         self.action_typ = 3
         self.critic_decay = 0.01
         self.critic_Q_input = tf.placeholder(tf.float32, shape=(None, 1))
-        self.regularizer_weight = 0.03
         self.tau = 0.001
         self.gamma = 0.9
         self.max_value = 0
@@ -100,7 +92,6 @@ class DeepDeterministicPolicyGradient(Algo):
             [self.critic_state_input, self.critic_action_input],
             self.critic_target_layers,
         )
-        self.sess = tf.Session()
         self.critic_loss = tf.reduce_mean(tf.square(self.critic_Q_input - self.critic_model))
         self.critic_optimizer = tf.train.AdamOptimizer(self.critic_learning_rate).minimize(self.critic_loss + sum(tf.get_collection('critic-losses')))
 
@@ -137,51 +128,6 @@ class DeepDeterministicPolicyGradient(Algo):
         except tf.errors.NotFoundError:
             print('New game')
 
-    def _build_layer(self, ipt_layer, opt_layer):
-        with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
-            ipt_layer = tf.layers.Flatten()(ipt_layer)
-            ipt_size = ipt_layer.get_shape()[-1]
-            weight_shape = [ipt_size, opt_layer.shape]
-            weights, biases = self.gen_weights(
-                opt_layer.name,
-                opt_layer.name + str(opt_layer.layer),
-                weight_shape,
-                bias_shape=[opt_layer.shape],
-                regularizer=opt_layer.regularizer,
-                wl=self.regularizer_weight,
-            )
-            tf.add_to_collections(opt_layer.name, [weights, biases])
-            clayer = tf.add(tf.matmul(ipt_layer, weights), biases)
-            if opt_layer.activation is not None:
-                clayer = opt_layer.activation(clayer)
-                clayer = tf.nn.dropout(clayer, rate=self.dropout)
-        return clayer
-
-    @staticmethod
-    def gen_weights(model_name, scope_name, shape, bias_shape, stddev=.1, bias=.1,
-                    regularizer=None, wl=None):
-        weight_init = tf.truncated_normal_initializer(dtype=tf.float32,
-                                                      stddev=stddev)
-        bias_init = tf.constant_initializer(bias)
-        weights = tf.get_variable('{}-weights'.format(scope_name),
-                                  shape=shape, initializer=weight_init)
-        biases = tf.get_variable('{}-biases'.format(scope_name),
-                                 shape=bias_shape, initializer=bias_init)
-        if regularizer is not None:
-            weights_loss = tf.multiply(tf.nn.l2_loss(weights), wl,
-                                       name='weights-loss')
-            tf.add_to_collection('{}-losses'.format(model_name), weights_loss)
-        return weights, biases
-
-    def build_model(self, ipt, layers):
-        if isinstance(ipt, MutableSequence):
-            current = tf.concat(ipt, axis=1)
-        else:
-            current = ipt
-        for layer in layers:
-            current = self._build_layer(current, layer)
-        return current
-
     def _copy_weights(self, src_name, dest_name):
         m1 = [t for t in tf.trainable_variables() if t.name.startswith(src_name)]
         m1 = sorted(m1, key=lambda v: v.name)
@@ -192,12 +138,6 @@ class DeepDeterministicPolicyGradient(Algo):
         for t1, t2 in zip(m1, m2):
             ops.append(t2.assign(t1))
         self.sess.run(ops)
-
-    def __del__(self):
-        try:
-            self.sess.close()
-        except AttributeError:
-            print('Something wrong before the session was created')
 
     def _batch_process(self, batch):
         batch_state = []
@@ -211,11 +151,11 @@ class DeepDeterministicPolicyGradient(Algo):
             batch_action.append(exp.action)
             batch_reward.append(exp.reward)
             batch_done.append(exp.done)
-        return np.array(batch_state),\
-            np.array(batch_action),\
-            np.array(batch_reward),\
-            np.array(batch_next_state),\
-            np.array(batch_done)
+        return np.array(batch_state).reshape((self.batch_size, self.state_shape)),\
+            np.array(batch_action).reshape((self.batch_size, self.action_shape)),\
+            np.array(batch_reward).reshape((self.batch_size, self.reward_shape)),\
+            np.array(batch_next_state).reshape((self.batch_size, self.state_shape)),\
+            np.array(batch_done).reshape((self.batch_size, self.done_shape))
 
     @staticmethod
     def softmax(x):
@@ -236,11 +176,11 @@ class DeepDeterministicPolicyGradient(Algo):
                     loss = self.train_with_batch(random.sample(self.experience_pool, self.batch_size))
                     self.lossarr.append(loss)
                 state = next_state
-                if not (e % self.info_moment):
-                    print(f'Current training round: {e}')
-                if not (e % self.save_round):
-                    print(self.save_file)
-                    self.saver.save(self.sess, str(self.save_file))
+            if not (e % self.info_moment):
+                print(f'Current training epoch: {e}')
+            if not (e % self.save_round):
+                self.saver.save(self.sess, str(self.save_file))
+        self.show_loss()
 
     def train_with_batch(self, batch):
         batch_state, batch_action, batch_reward, batch_next_state, batch_done = self._batch_process(batch)
