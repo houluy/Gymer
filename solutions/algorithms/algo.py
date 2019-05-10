@@ -5,6 +5,17 @@ from collections.abc import MutableSequence
 import tensorflow as tf
 
 
+ConvLayer = namedtuple('ConvLayer',
+    ('name', 'layer', 'kernel', 'strides', 'number', 'channels', 'stddev', 'bias')
+)
+PoolLayer = namedtuple('PoolLayer', ('name', 'layer', 'ksize', 'strides'))
+# Local Response Normalizations
+# LRNLayers = namedtuple('LRNLayer', ('layer', 'type', 'radius', 'bias', 'alpha', 'beta'))
+FCLayer = namedtuple('FCLayer',
+    ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
+)
+
+
 class Algo:
     def __init__(
         self,
@@ -90,6 +101,14 @@ class Algo:
             current = self._build_layer(current, layer)
         return current
 
+    def stats(
+        self,
+        **kwargs,
+    ):
+        for key, val in kwargs.items():
+            t = getattr(self, key + 'arr', [])
+            t.append(val)
+
     def __str__(self):
         return self.__class__.__name__
 
@@ -102,11 +121,14 @@ class Algo:
             )
         )
 
-    def show(self):
+    def show_loss(self):
         plt.figure(1)
         plt.plot(self.lossarr, label='algo:{}'.format(str(self)))
         plt.legend()
         plt.title('Loss of NN')
+        plt.show()
+
+    def show_reward(self):
         plt.figure(2)
         plt.plot(self.rewardarr, label='algo:{}'.format(str(self)))
         plt.legend()
@@ -137,8 +159,5 @@ class Experience:
         self.next_state = next_state
         self.done = done
 
-FCLayer = namedtuple('FCLayer', (
-'name', 'layer', 'shape', 'regularizer', 'activation'
-))
 
-__all__ = ['FCLayer', 'Experience', 'Algo']
+__all__ = ['ConvLayer', 'PoolLayer', 'FCLayer', 'Experience', 'Algo']

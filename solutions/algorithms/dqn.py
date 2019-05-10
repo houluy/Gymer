@@ -6,18 +6,14 @@ import matplotlib.pyplot as plt
 
 
 class QApproximation:
-
-    ConvLayers = namedtuple('ConvLayer',
-        ('name', 'layer', 'kernel', 'strides', 'number', 'channels', 'stddev', 'bias')
-    )
-    PoolLayers = namedtuple('PoolLayer', ('name', 'layer', 'ksize', 'strides'))
-    # Local Response Normalizations
-    # LRNLayers = namedtuple('LRNLayer', ('layer', 'type', 'radius', 'bias', 'alpha', 'beta'))
-    FCLayers = namedtuple('FCLayer',
-        ('name', 'layer', 'shape', 'stddev', 'bias', 'regularizer', 'regularizer_weight', 'activation')
-    )
-
-    def __init__(self, ipt_size, out_size, batch_size, ipt_channel=1):
+    def __init__(
+        self,
+        ipt_size,
+        out_size,
+        batch_size,
+        ipt_channel=1,
+        dim=1,
+    ):
         self.ipt_size = ipt_size
         self.ipt_shape = (self.ipt_size, self.ipt_size)
         self.ipt_channel = ipt_channel

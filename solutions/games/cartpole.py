@@ -18,17 +18,27 @@ class Cartpole:
     def random_policy(self, state):
         return self.env.action_space.sample()
 
-    def run(self, policy):
-        episodes = 100
+    def run(
+        self,
+        policy,
+        episodes=100,
+        info=False,
+    ):
         for i in range(episodes):
             state = self.env.reset()
             self.env.render()
             done = False
+            total_reward = 0
             while not done:
                 action = self.action_wrapper(policy(state))
-                next_state, reward, done, info = self.env.step(action)
+                next_state, reward, done, _ = self.env.step(action)
                 state = next_state
+                total_reward += reward
+                if info:
+                    print(f'Info: state: {state}\n next_state: {next_state}\n action: {action}\n done: {done}\n')
                 self.env.render()
+            policy.stats(reward=total_reward)
+        policy.show_reward()
         self.env.close()
 
     def __getattr__(self, key):

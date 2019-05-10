@@ -1,12 +1,11 @@
 import tensorflow as tf
 from itertools import chain
 import numpy as np
-import matplotlib.pyplot as plt
 import random
 import pathlib
 
 from solutions.algorithms.ddpg.noise import OUNoise
-from solutions.algorithms.algo import Algo, Experience, FCLayer
+from solutions.algorithms.algo import *
 
 
 class DeepDeterministicPolicyGradient(Algo):
@@ -44,10 +43,10 @@ class DeepDeterministicPolicyGradient(Algo):
         actor_layers_dict = {}
         for name in ['actor', 'target_actor']:
             actor_layers_dict[name] = [
-                FCLayer(name=name, layer=1, shape=16, regularizer=True, activation=tf.nn.relu),
-                FCLayer(name=name, layer=2, shape=32, regularizer=True, activation=tf.nn.relu),
-                FCLayer(name=name, layer=3, shape=16, regularizer=True, activation=tf.nn.relu),
-                FCLayer(name=name, layer=4, shape=self.action_shape, regularizer=False, activation=None)
+                FCLayer(name=name, layer=1, shape=4, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=2, shape=8, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=3, shape=4, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=4, shape=self.action_shape, regularizer=False, activation=tf.nn.sigmoid)
             ]
         self.actor_layers = actor_layers_dict['actor']
         self.actor_target_layers = actor_layers_dict['target_actor']
@@ -69,9 +68,9 @@ class DeepDeterministicPolicyGradient(Algo):
         critic_layers_dict = {}
         for name in ['critic', 'target_critic']:
             critic_layers_dict[name] = [
-                FCLayer(name=name, layer=1, shape=16, regularizer=True, activation=tf.nn.relu),
-                FCLayer(name=name, layer=2, shape=32, regularizer=True, activation=tf.nn.relu),
-                FCLayer(name=name, layer=3, shape=16, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=1, shape=4, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=2, shape=8, regularizer=True, activation=tf.nn.relu),
+                FCLayer(name=name, layer=3, shape=4, regularizer=True, activation=tf.nn.relu),
                 FCLayer(name=name, layer=4, shape=self.critic_opt_shape, regularizer=False, activation=None)
             ]
         self.critic_layers = critic_layers_dict['critic']
@@ -162,20 +161,32 @@ class DeepDeterministicPolicyGradient(Algo):
         """Compute softmax values for each sets of scores in x."""
         return np.exp(x) / np.sum(np.exp(x), axis=0)
 
-    def train(self):
+    def train(
+        self,
+        info=False,
+    ):
         size = 0
         for e in range(self.train_round):
             state = self.env.reset()
             done = False
             while not done:
-                action = self.env.action_wrapper(self(state, train=True))
-                next_state, reward, done, info = self.env.step(action)
+                raw_action = self(state, train=True)
+                action = self.env.action_wrapper(raw_action)
+                next_state, reward, done, _ = self.env.step(action)
                 self.experience_pool.append(Experience(state, action, reward, next_state, done))
                 size += 1
                 if size > self.batch_size:
                     loss = self.train_with_batch(random.sample(self.experience_pool, self.batch_size))
                     self.lossarr.append(loss)
                 state = next_state
+                if info:
+                    print('\n'.join([
+                        'Training info:',
+                        f'state: {state}',
+                        f'raw action: {raw_action}',
+                        f'reward: {reward}',
+                        f'done: {done}',
+                    ]))
             if not (e % self.info_moment):
                 print(f'Current training epoch: {e}')
             if not (e % self.save_round):
