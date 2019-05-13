@@ -127,17 +127,6 @@ class DeepDeterministicPolicyGradient(Algo):
         except tf.errors.NotFoundError:
             print('New game')
 
-    def _copy_weights(self, src_name, dest_name):
-        m1 = [t for t in tf.trainable_variables() if t.name.startswith(src_name)]
-        m1 = sorted(m1, key=lambda v: v.name)
-        m2 = [t for t in tf.trainable_variables() if t.name.startswith(dest_name)]
-        m2 = sorted(m2, key=lambda v: v.name)
-
-        ops = []
-        for t1, t2 in zip(m1, m2):
-            ops.append(t2.assign(t1))
-        self.sess.run(ops)
-
     def _batch_process(self, batch):
         batch_state = []
         batch_action = []

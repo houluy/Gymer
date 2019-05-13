@@ -3,19 +3,127 @@ from collections import namedtuple, deque
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from solutions.algorithms.algo import *
 
 
-class QApproximation:
+class DQN(Algo):
+    name2layer = {
+        'FC': FCLayer,
+        'Con': ConvLayer,
+    }
+
+    def __init__(
+            self,
+            env,
+            typ='FC',
+            layers=(4, 8, 4),
+            activations=(tf.nn.relu, tf.nn.relu, None),
+            stddev=5e-2,
+            biases=0.1,
+    ):
+        super().__init__(
+            env=env,
+        )
+        self.ipt = tf.placeholder(tf.float32, shape=(None, self.state_shape))
+        self.reward = tf.placeholder(tf.float32, shape=(None, 1))
+        self.mask = tf.placeholder(tf.float32, shape=(self.action_shape, None))
+        self.reg_lambda = 0.03
+        self.alpha = 0.3
+        self.stddev = stddev
+        self.biases = biases
+        layer_params = {
+            'typ': typ,
+            'layers': layers,
+            'stddev': self.stddev,
+            'bias': self.biases,
+            'regularizer': True,
+            'regularizer_weight': self.reg_lambda,
+            'activation': activations,
+        }
+        self.Q = self.build_model(self._define_layers('Q', layer_params))
+        self.target = self.build_model(self._define_layers('target', layer_params))
+        self.loss = tf.reduce_mean(tf.square(self.target - self.Q)) + sum(tf.get_collection('losses'))
+        self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+        self.saver = tf.train.Saver()
+        self.sess = tf.Session()
+        self._copy_weights('Q', 'target')
+        self.sess.run(tf.global_variables_initializer())
+
+    def _define_layers(self, name, layer_params):
+        layers = layer_params.pop('layers')
+        typ = layer_params.pop('typ')
+        activation = layer_params.pop('activation')
+        return [
+            self.name2layer[typ](
+                name=name,
+                layer=ind,
+                shape=shape,
+                activation=activation[ind],
+                **layer_params
+            ) for ind, shape in enumerate(layers)
+        ]
+
+    # @staticmethod
+    # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
+    #     weight_init = tf.truncated_normal_initializer(dtype=tf.float32, stddev=stddev)
+    #     bias_init = tf.constant_initializer(bias)
+    #     weights = tf.get_variable('{}-weights'.format(scope_name), shape=shape, initializer=weight_init)
+    #     biases = tf.get_variable('{}-biases'.format(scope_name), shape=bias_shape, initializer=bias_init)
+    #     if regularizer is not None:
+    #         weights_loss = tf.multiply(tf.nn.l2_loss(weights), wl, name='weights-loss')
+    #         tf.add_to_collection('losses', weights_loss)
+    #     return weights, biases
+
+    # def _build_layer(self, ipt_layer, opt_layer):
+    #     clayer = ipt_layer
+    #     with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
+    #         if isinstance(opt_layer, ConvLayer):
+    #             weight_shape = [*opt_layer.kernel, opt_layer.channels, opt_layer.number]
+    #             weights, biases = self.gen_weights(
+    #                 opt_layer.name + str(opt_layer.layer),
+    #                 weight_shape,
+    #                 bias_shape=[opt_layer.number],
+    #                 stddev=opt_layer.stddev,
+    #                 bias=opt_layer.bias,
+    #             )
+    #             clayer = tf.nn.conv2d(clayer, weights, strides=opt_layer.strides, padding='SAME')
+    #             clayer = tf.nn.relu(tf.nn.bias_add(clayer, biases))
+    #         elif isinstance(opt_layer, PoolLayer):
+    #             clayer = tf.nn.max_pool(clayer, ksize=opt_layer.ksize, strides=opt_layer.strides, padding='SAME')
+    #         elif isinstance(opt_layer, FCLayer):
+    #             clayer = tf.layers.Flatten()(clayer)
+    #             ipt_size = clayer.get_shape()[-1]
+    #             weight_shape = [ipt_size, opt_layer.shape]
+    #             weights, biases = self.gen_weights(
+    #                 opt_layer.name + str(opt_layer.layer),
+    #                 weight_shape,
+    #                 bias_shape=[opt_layer.shape],
+    #                 regularizer=opt_layer.regularizer,
+    #                 wl=opt_layer.regularizer_weight,
+    #             )
+    #             clayer = tf.add(tf.matmul(clayer, weights), biases)
+    #             if opt_layer.activation is not None:
+    #                 clayer = opt_layer.activation(clayer)
+    #     return clayer
+    #
+    # def build_all(self, structure):
+    #     current = self.ipt
+    #     layer = None
+    #     for layer in structure:
+    #         current = self._build_layer(current, layer)
+    #     if layer.name == 'Q':
+    #         current = tf.layers.Flatten()(current)
+    #         return tf.matmul(current, self.mask)
+    #     else:
+    #         return current
+
+
+class ConvolutionNetwork(QApproximation):
     def __init__(
         self,
-        ipt_size,
-        out_size,
-        batch_size,
-        ipt_channel=1,
-        dim=1,
+
     ):
-        self.ipt_size = ipt_size
-        self.ipt_shape = (self.ipt_size, self.ipt_size)
+        self.ipt_shape = ipt_shape
         self.ipt_channel = ipt_channel
         self.batch_size = batch_size
         self.opt_size = out_size
@@ -37,7 +145,7 @@ class QApproximation:
         self.networks = {}
         for name in model_name:
             self.networks[name] = self.build_all([
-                self.ConvLayers(
+                ConvLayer(
                     name=name,
                     layer=1,
                     kernel=(3, 3),
@@ -53,7 +161,7 @@ class QApproximation:
                 #     ksize=k_size,
                 #     strides=p_strides,
                 # ),
-                self.ConvLayers(
+                ConvLayer(
                     name=name,
                     layer=2,
                     kernel=(3, 3),
@@ -99,7 +207,7 @@ class QApproximation:
                 #     regularizer_weight=self.reg_lambda,
                 #     activation=tf.nn.relu,
                 # ),
-                self.FCLayers(
+                FCLayer(
                     name=name,
                     layer=3,
                     shape=self.opt_size,
@@ -113,78 +221,6 @@ class QApproximation:
         self._action = 0
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
         self.saver = tf.train.Saver()
-
-    @staticmethod
-    def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
-        weight_init = tf.truncated_normal_initializer(dtype=tf.float32, stddev=stddev)
-        bias_init = tf.constant_initializer(bias)
-        weights = tf.get_variable('{}-weights'.format(scope_name), shape=shape, initializer=weight_init)
-        biases = tf.get_variable('{}-biases'.format(scope_name), shape=bias_shape, initializer=bias_init)
-        if regularizer is not None:
-            weights_loss = tf.multiply(tf.nn.l2_loss(weights), wl, name='weights-loss')
-            tf.add_to_collection('losses', weights_loss)
-        return weights, biases
-
-    def _build_layer(self, ipt_layer, opt_layer):
-        clayer = ipt_layer
-        with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):
-            if isinstance(opt_layer, self.ConvLayers):
-                weight_shape = [*opt_layer.kernel, opt_layer.channels, opt_layer.number]
-                weights, biases = self.gen_weights(
-                    opt_layer.name + str(opt_layer.layer),
-                    weight_shape,
-                    bias_shape=[opt_layer.number],
-                    stddev=opt_layer.stddev,
-                    bias=opt_layer.bias,
-                )
-                clayer = tf.nn.conv2d(clayer, weights, strides=opt_layer.strides, padding='SAME')
-                clayer = tf.nn.relu(tf.nn.bias_add(clayer, biases))
-            elif isinstance(opt_layer, self.PoolLayers):
-                clayer = tf.nn.max_pool(clayer, ksize=opt_layer.ksize, strides=opt_layer.strides, padding='SAME')
-            elif isinstance(opt_layer, self.FCLayers):
-                clayer = tf.layers.Flatten()(clayer)
-                ipt_size = clayer.get_shape()[-1]
-                weight_shape = [ipt_size, opt_layer.shape]
-                weights, biases = self.gen_weights(
-                    opt_layer.name + str(opt_layer.layer),
-                    weight_shape,
-                    bias_shape=[opt_layer.shape],
-                    regularizer=opt_layer.regularizer,
-                    wl=opt_layer.regularizer_weight,
-                )
-                clayer = tf.add(tf.matmul(clayer, weights), biases)
-                if opt_layer.activation is not None:
-                    clayer = opt_layer.activation(clayer)
-        return clayer
-
-    def build_all(self, structure, name):
-        current = self.ipt
-        for layer in structure:
-            current = self._build_layer(current, layer)
-        if name == 'Q':
-            current = tf.layers.Flatten()(current)
-            return tf.matmul(current, self.mask)
-        else:
-            return current
-
-    @property
-    def loss(self):
-        return tf.reduce_mean(tf.square(self.reward - self['Q'])) + sum(tf.get_collection('losses'))
-
-    @staticmethod
-    def _copy_model(sess):
-        m1 = [t for t in tf.trainable_variables() if t.name.startswith('Q')]
-        m1 = sorted(m1, key=lambda v: v.name)
-        m2 = [t for t in tf.trainable_variables() if t.name.startswith('target')]
-        m2 = sorted(m2, key=lambda v: v.name)
-
-        ops = []
-        for t1, t2 in zip(m1, m2):
-            ops.append(t2.assign(t1))
-        sess.run(ops)
-
-    def __getitem__(self, item):
-        return self.networks[item]
 
 
 class DQN:

@@ -20,11 +20,11 @@ class Algo:
     def __init__(
         self,
         env,
-        pool_size,
-        batch_size,
-        info_moment,
-        save_round,
-        train_round,
+        info_moment=20,
+        save_round=64,
+        train_round=3e5,
+        batch_size=256,
+        pool_size=1024,
         render=True,
     ):
         self.lossarr = []
@@ -134,6 +134,17 @@ class Algo:
         plt.legend()
         plt.title('Average reward of RL solution')
         plt.show()
+
+    def _copy_weights(self, src_name, dest_name):
+        m1 = [t for t in tf.trainable_variables() if t.name.startswith(src_name)]
+        m1 = sorted(m1, key=lambda v: v.name)
+        m2 = [t for t in tf.trainable_variables() if t.name.startswith(dest_name)]
+        m2 = sorted(m2, key=lambda v: v.name)
+
+        ops = []
+        for t1, t2 in zip(m1, m2):
+            ops.append(t2.assign(t1))
+        self.sess.run(ops)
 
     def __del__(self):
         try:
