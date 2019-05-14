@@ -29,6 +29,7 @@ class DQN(Algo):
         self.mask = tf.placeholder(tf.float32, shape=(self.action_shape, None))
         self.reg_lambda = 0.03
         self.alpha = 0.3
+        self.gamma = 0.99
         self.stddev = stddev
         self.biases = biases
         layer_params = {
@@ -40,9 +41,9 @@ class DQN(Algo):
             'regularizer_weight': self.reg_lambda,
             'activation': activations,
         }
-        self.Q = self.build_model(self._define_layers('Q', layer_params))
-        self.target = self.build_model(self._define_layers('target', layer_params))
-        self.loss = tf.reduce_mean(tf.square(self.target - self.Q)) + sum(tf.get_collection('losses'))
+        self.Q = self.build_model(self.ipt, self._define_layers('Q', layer_params.copy()))
+        self.target = self.build_model(self.ipt, self._define_layers('target', layer_params.copy()))
+        self.loss = tf.reduce_mean(tf.square(self.target + self.gamma*self.reward - self.Q)) + sum(tf.get_collection('losses'))
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
         self.saver = tf.train.Saver()
         self.sess = tf.Session()
@@ -118,119 +119,119 @@ class DQN(Algo):
     #         return current
 
 
-class ConvolutionNetwork(QApproximation):
-    def __init__(
-        self,
+# class ConvolutionNetwork(QApproximation):
+#     def __init__(
+#         self,
+#
+#     ):
+#         self.ipt_shape = ipt_shape
+#         self.ipt_channel = ipt_channel
+#         self.batch_size = batch_size
+#         self.opt_size = out_size
+#         self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
+#         self.reward = tf.placeholder(tf.float32, shape=(None, 1))
+#         self.mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
+#
+#         # Below is the output mask that only the chosen neural (action) will output Q.
+#         # self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
+#         self.reg_lambda = 0.03
+#         self.alpha = 0.3
+#
+#         c_strides = (1, 2, 2, 1)
+#         p_strides = (1, 2, 2, 1)
+#         k_size = (1, 3, 3, 1)
+#         stddev = 5e-2
+#         biases = 0.1
+#         model_name = ['Q', 'target']
+#         self.networks = {}
+#         for name in model_name:
+#             self.networks[name] = self.build_all([
+#                 ConvLayer(
+#                     name=name,
+#                     layer=1,
+#                     kernel=(3, 3),
+#                     strides=c_strides,
+#                     number=16,
+#                     channels=self.ipt_channel,
+#                     stddev=stddev,
+#                     bias=biases
+#                 ),
+#                 # self.PoolLayers(
+#                 #     name=name,
+#                 #     layer=2,
+#                 #     ksize=k_size,
+#                 #     strides=p_strides,
+#                 # ),
+#                 ConvLayer(
+#                     name=name,
+#                     layer=2,
+#                     kernel=(3, 3),
+#                     strides=c_strides,
+#                     number=32,
+#                     channels=16,
+#                     stddev=stddev,
+#                     bias=biases
+#                 ),
+#                 # self.PoolLayers(
+#                 #     name=name,
+#                 #     layer=4,
+#                 #     ksize=k_size,
+#                 #     strides=p_strides,
+#                 # ),
+#                 # self.ConvLayers(
+#                 #     name=name,
+#                 #     layer=5,
+#                 #     kernel=(1, 1),
+#                 #     strides=c_strides,
+#                 #     number=128,
+#                 #     channels=32,
+#                 #     stddev=stddev,
+#                 #     bias=biases,
+#                 # ),
+#                 # self.ConvLayers(
+#                 #     name=name,
+#                 #     layer=6,
+#                 #     kernel=(1, 1),
+#                 #     strides=c_strides,
+#                 #     number=self.opt_size,
+#                 #     channels=128,
+#                 #     stddev=stddev,
+#                 #     bias=biases,
+#                 # )
+#                 # self.FCLayers(
+#                 #     name=name,
+#                 #     layer=5,
+#                 #     shape=128,
+#                 #     stddev=stddev,
+#                 #     bias=biases,
+#                 #     regularizer=True,
+#                 #     regularizer_weight=self.reg_lambda,
+#                 #     activation=tf.nn.relu,
+#                 # ),
+#                 FCLayer(
+#                     name=name,
+#                     layer=3,
+#                     shape=self.opt_size,
+#                     stddev=stddev,
+#                     bias=biases,
+#                     regularizer=None,
+#                     regularizer_weight=self.reg_lambda,
+#                     activation=None,
+#                 )
+#             ], name=name)
+#         self._action = 0
+#         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+#         self.saver = tf.train.Saver()
 
-    ):
-        self.ipt_shape = ipt_shape
-        self.ipt_channel = ipt_channel
-        self.batch_size = batch_size
-        self.opt_size = out_size
-        self.ipt = tf.placeholder(tf.float32, shape=(None, *self.ipt_shape, self.ipt_channel))
-        self.reward = tf.placeholder(tf.float32, shape=(None, 1))
-        self.mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
 
-        # Below is the output mask that only the chosen neural (action) will output Q.
-        # self.opt_mask = tf.placeholder(tf.float32, shape=(self.opt_size, None))
-        self.reg_lambda = 0.03
-        self.alpha = 0.3
-
-        c_strides = (1, 2, 2, 1)
-        p_strides = (1, 2, 2, 1)
-        k_size = (1, 3, 3, 1)
-        stddev = 5e-2
-        biases = 0.1
-        model_name = ['Q', 'target']
-        self.networks = {}
-        for name in model_name:
-            self.networks[name] = self.build_all([
-                ConvLayer(
-                    name=name,
-                    layer=1,
-                    kernel=(3, 3),
-                    strides=c_strides,
-                    number=16,
-                    channels=self.ipt_channel,
-                    stddev=stddev,
-                    bias=biases
-                ),
-                # self.PoolLayers(
-                #     name=name,
-                #     layer=2,
-                #     ksize=k_size,
-                #     strides=p_strides,
-                # ),
-                ConvLayer(
-                    name=name,
-                    layer=2,
-                    kernel=(3, 3),
-                    strides=c_strides,
-                    number=32,
-                    channels=16,
-                    stddev=stddev,
-                    bias=biases
-                ),
-                # self.PoolLayers(
-                #     name=name,
-                #     layer=4,
-                #     ksize=k_size,
-                #     strides=p_strides,
-                # ),
-                # self.ConvLayers(
-                #     name=name,
-                #     layer=5,
-                #     kernel=(1, 1),
-                #     strides=c_strides,
-                #     number=128,
-                #     channels=32,
-                #     stddev=stddev,
-                #     bias=biases,
-                # ),
-                # self.ConvLayers(
-                #     name=name,
-                #     layer=6,
-                #     kernel=(1, 1),
-                #     strides=c_strides,
-                #     number=self.opt_size,
-                #     channels=128,
-                #     stddev=stddev,
-                #     bias=biases,
-                # )
-                # self.FCLayers(
-                #     name=name,
-                #     layer=5,
-                #     shape=128,
-                #     stddev=stddev,
-                #     bias=biases,
-                #     regularizer=True,
-                #     regularizer_weight=self.reg_lambda,
-                #     activation=tf.nn.relu,
-                # ),
-                FCLayer(
-                    name=name,
-                    layer=3,
-                    shape=self.opt_size,
-                    stddev=stddev,
-                    bias=biases,
-                    regularizer=None,
-                    regularizer_weight=self.reg_lambda,
-                    activation=None,
-                )
-            ], name=name)
-        self._action = 0
-        self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
-        self.saver = tf.train.Saver()
-
-
-class DQN:
+class DQN2:
 
     exp = namedtuple('exp', ('state', 'action', 'instant', 'next_state', 'terminal'))
 
     def __init__(self, game):
         self.game = game
         self.ipt_size, self.opt_size = self.game.size
-        self.q_network = QApproximation(self.ipt_size, self.opt_size, batch_size=128)
+        self.q_network = DQN(self.ipt_size, self.opt_size, batch_size=128)
         self.global_step = tf.Variable(0, trainable=False)
         self.epsilon_decay = 0.9
         self.epsilon_base = 0.9
