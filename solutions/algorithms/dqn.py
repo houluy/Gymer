@@ -81,13 +81,8 @@ class DQN(Algo):
         while episode < self.train_round:
             state = self.env.state
             while True:
-                state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
-                epsilon = np.random.rand()
-                action = self.epsilon_greedy(epsilon, state)
-                next_state, reward, terminal, _ = self.env.step(action)
-                next_state = next_state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
-                if reward > 0:
-                    self.env.new_food()
+                action = self.epsilon_greedy(state)
+                next_state, reward, terminal, info = self.env.step(action)
                 self.experience_pool.append(self.exp(
                     state=state,
                     action=action,
@@ -96,14 +91,14 @@ class DQN(Algo):
                     terminal=terminal,
                 ))  # Gaining experience pool
                 self.experience_size += 1
-                self.game.render(window)
-                if self.experience_size >= self.minibatch_size:  # Until it satisfy minibatch size
-                    minibatch = random.sample(self.experience_pool, self.minibatch_size)
+                self.env.render()
+                if self.experience_size >= self.batch_size:  # Until it satisfy minibatch size
+                    minibatch = random.sample(self.experience_pool, self.batch_size)
                     episode += 1
                     self.sess.run(tf.assign(self.global_step, episode))
                     batch = self._convert(minibatch)
                     _, loss = self.sess.run(
-                        [self.optimizer, self.q_network.loss],
+                        [self.optimizer, self.Q.loss],
                         feed_dict={
                             self.ipt: batch['state'],
                             self.mask: batch['action'],
@@ -111,17 +106,11 @@ class DQN(Algo):
                         }
                     )
                     self.lossarr.append(loss)
-                    #lossave.append(sum(lossarr)/(episode + 1))
-                    #self.show(episodes, lossarr, lossave)
-                    if episode % self.target_update_episode == 0:
-                        self.q_network._copy_model(self.sess)
-                    if episode % self.save_episode == 0:
-                        self.q_network.saver.save(self.sess, self.model_file)
+
                 if terminal:
                     break
-            self.game.reset()
-        self.show_loss()
-        self.game.close(window)
+            self.env.reset()
+        self.env.close()
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
