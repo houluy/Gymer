@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from collections import deque, namedtuple
 from collections.abc import MutableSequence
 import tensorflow as tf
+import pathlib
 
 
 ConvLayer = namedtuple('ConvLayer',
@@ -47,6 +48,7 @@ class Algo:
             self.render = lambda: None
         tf.reset_default_graph()
         self.sess = tf.Session()
+        self.save_file = f'solutions/models/{self.env.name}/{str(self)}/model.ckpt'
 
     def _build_layer(self, ipt_layer, opt_layer):
         with tf.variable_scope(opt_layer.name, reuse=tf.AUTO_REUSE):

@@ -46,9 +46,8 @@ class DQN(Algo):
         self.loss = tf.reduce_mean(tf.square(self.target + self.gamma*self.reward - self.Q)) + sum(tf.get_collection('losses'))
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
         self.saver = tf.train.Saver()
-        self.sess = tf.Session()
-        self._copy_weights('Q', 'target')
         self.sess.run(tf.global_variables_initializer())
+        self._copy_weights('Q', 'target')
 
     def _define_layers(self, name, layer_params):
         layers = layer_params.pop('layers')
@@ -63,6 +62,66 @@ class DQN(Algo):
                 **layer_params
             ) for ind, shape in enumerate(layers)
         ]
+
+    def train(self, window=None):
+        try:
+            self.Q.saver.restore(self.sess, self.save_file)
+        except ValueError:
+            print('First-time train')
+        except tf.errors.InvalidArgumentError:
+            print('New game')
+        except tf.errors.DataLossError:
+            print('FATAL ERROR, start new game')
+        except tf.errors.NotFoundError:
+            print('New game')
+        self.env.reset()
+        self.lossarr = []
+        self.experience_size = 0
+        episode = 0
+        while episode < self.train_round:
+            state = self.env.state
+            while True:
+                state = state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
+                epsilon = np.random.rand()
+                action = self.epsilon_greedy(epsilon, state)
+                next_state, reward, terminal, _ = self.env.step(action)
+                next_state = next_state.reshape((self.ipt_size, self.ipt_size, 1), order='F')
+                if reward > 0:
+                    self.env.new_food()
+                self.experience_pool.append(self.exp(
+                    state=state,
+                    action=action,
+                    instant=reward,
+                    next_state=next_state,
+                    terminal=terminal,
+                ))  # Gaining experience pool
+                self.experience_size += 1
+                self.game.render(window)
+                if self.experience_size >= self.minibatch_size:  # Until it satisfy minibatch size
+                    minibatch = random.sample(self.experience_pool, self.minibatch_size)
+                    episode += 1
+                    self.sess.run(tf.assign(self.global_step, episode))
+                    batch = self._convert(minibatch)
+                    _, loss = self.sess.run(
+                        [self.optimizer, self.q_network.loss],
+                        feed_dict={
+                            self.ipt: batch['state'],
+                            self.mask: batch['action'],
+                            self.reward: batch['reward'],
+                        }
+                    )
+                    self.lossarr.append(loss)
+                    #lossave.append(sum(lossarr)/(episode + 1))
+                    #self.show(episodes, lossarr, lossave)
+                    if episode % self.target_update_episode == 0:
+                        self.q_network._copy_model(self.sess)
+                    if episode % self.save_episode == 0:
+                        self.q_network.saver.save(self.sess, self.model_file)
+                if terminal:
+                    break
+            self.game.reset()
+        self.show_loss()
+        self.game.close(window)
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
