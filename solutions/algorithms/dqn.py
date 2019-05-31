@@ -42,6 +42,7 @@ class DQN(Algo):
             'activation': activations,
         }
         self.Q = self.build_model(self.ipt, self._define_layers('Q', layer_params.copy()))
+        self.model = self.Q  # This is used for consistency in Algo __call__
         self.target = self.build_model(self.ipt, self._define_layers('target', layer_params.copy()))
         self.loss = tf.reduce_mean(tf.square(self.target + self.gamma*self.reward - self.Q)) + sum(tf.get_collection('losses'))
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
@@ -78,17 +79,18 @@ class DQN(Algo):
         self.lossarr = []
         self.experience_size = 0
         episode = 0
-        while episode < self.train_round:
-            state = self.env.state
-            while True:
-                action = self.epsilon_greedy(state)
-                next_state, reward, terminal, info = self.env.step(action)
-                self.experience_pool.append(self.exp(
-                    state=state,
-                    action=action,
-                    instant=reward,
-                    next_state=next_state,
-                    terminal=terminal,
+        for episode in range(self.train_round):
+            state = self.env.reset()
+            done = False
+            while not done:
+                action = self(state, train=True)
+                next_state, reward, done, info = self.env.step(action)
+                self.experience_pool.append(Experience(
+                    state,
+                    action,
+                    reward,
+                    next_state,
+                    done,
                 ))  # Gaining experience pool
                 self.experience_size += 1
                 self.env.render()
@@ -106,11 +108,11 @@ class DQN(Algo):
                         }
                     )
                     self.lossarr.append(loss)
-
-                if terminal:
-                    break
-            self.env.reset()
-        self.env.close()
+            if not (episode % self.info_moment):
+                print(f'Current training epoch: {episode}')
+            if not (episode % self.save_round):
+                self.saver.save(self.sess, str(self.save_file))
+        self.show_loss()
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):

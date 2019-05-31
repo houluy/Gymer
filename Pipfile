@@ -13,6 +13,7 @@ numpy = "*"
 coverage = "*"
 matplotlib = "*"
 tensorboard = "==1.13.1"
+networkx = "*"
 
 [requires]
 python_version = "3.6"

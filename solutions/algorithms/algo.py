@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-# import numpy as np
+import numpy as np
 from collections import deque, namedtuple
 from collections.abc import MutableSequence
 import tensorflow as tf
@@ -39,9 +39,11 @@ class Algo:
         self.env = env
         self.state_shape = self.env.state_shape
         self.action_shape = self.env.action_shape
+        self.model = lambda x: x  # This must be customized in subclass
         self._env_info()
         self.regularizer_weight = 0.03
         self.dropout_rate = 0.5
+        self.global_step = tf.Variable(0)
         if render:
             self.render = self.env.render
         else:
@@ -111,8 +113,16 @@ class Algo:
             t = getattr(self, key + 'arr', [])
             t.append(val)
 
+    @property
+    def rp(self):
+        return np.random.rand(self.action_shape)
+
     def __str__(self):
         return self.__class__.__name__
+
+    def __call__(self, state, train=False):
+        raw_action = self.model(state)
+        return raw_action if not train else raw_action + self.rp
 
     def _env_info(self):
         print(
@@ -153,6 +163,10 @@ class Algo:
             self.sess.close()
         except AttributeError:
             print('Something wrong before the session was created')
+        try:
+            self.env.close()
+        except AttributeError:
+            print('ERROR')
 
 
 class Experience:
