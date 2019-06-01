@@ -10,4 +10,4 @@ c = Cartpole()
 # # c.run(c.random_policy, info=True)
 # c.run(ddpg, info=True)
 dqn = DQN(env=c)
-
+dqn.train()

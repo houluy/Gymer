@@ -23,7 +23,7 @@ class Algo:
         env,
         info_moment=20,
         save_round=64,
-        train_round=3e5,
+        train_round=300,
         batch_size=256,
         pool_size=1024,
         render=True,

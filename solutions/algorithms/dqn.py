@@ -42,7 +42,7 @@ class DQN(Algo):
             'activation': activations,
         }
         self.Q = self.build_model(self.ipt, self._define_layers('Q', layer_params.copy()))
-        self.model = self.Q  # This is used for consistency in Algo __call__
+        self.model = lambda state: self.sess.run(self.Q, feed_dict={self.ipt: state})  # This is used for consistency in Algo __call__
         self.target = self.build_model(self.ipt, self._define_layers('target', layer_params.copy()))
         self.loss = tf.reduce_mean(tf.square(self.target + self.gamma*self.reward - self.Q)) + sum(tf.get_collection('losses'))
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
@@ -64,9 +64,9 @@ class DQN(Algo):
             ) for ind, shape in enumerate(layers)
         ]
 
-    def train(self, window=None):
+    def train(self):
         try:
-            self.Q.saver.restore(self.sess, self.save_file)
+            self.saver.restore(self.sess, self.save_file)
         except ValueError:
             print('First-time train')
         except tf.errors.InvalidArgumentError:
@@ -78,7 +78,6 @@ class DQN(Algo):
         self.env.reset()
         self.lossarr = []
         self.experience_size = 0
-        episode = 0
         for episode in range(self.train_round):
             state = self.env.reset()
             done = False
@@ -100,7 +99,7 @@ class DQN(Algo):
                     self.sess.run(tf.assign(self.global_step, episode))
                     batch = self._convert(minibatch)
                     _, loss = self.sess.run(
-                        [self.optimizer, self.Q.loss],
+                        [self.optimizer, self.loss],
                         feed_dict={
                             self.ipt: batch['state'],
                             self.mask: batch['action'],
@@ -113,6 +112,30 @@ class DQN(Algo):
             if not (episode % self.save_round):
                 self.saver.save(self.sess, str(self.save_file))
         self.show_loss()
+        self.env.close()
+
+    def _convert(self, minibatch):
+        'Convert minibatch from namedtuple to multi-dimensional matrix'
+        batch = {
+            'state': [],
+            'reward': [],
+            'action': [],
+        }
+        for block in minibatch:
+            batch['state'].append(block.state)
+            batch['action'].append(block.action)
+            if block.terminal:
+                reward = block.instant
+            else:
+                target = self.sess.run(self.target, feed_dict={self.ipt: np.array([block.next_state])})
+                reward = block.instant + self.gamma * target.max()
+            batch['reward'].append(reward)
+        batch['action'] = np.array(batch['action']).T
+        batch['reward'] = np.array([batch['reward']]).T
+        return batch
+
+    def model(self, state):
+        pass
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):
@@ -326,26 +349,6 @@ class DQN2:
     @property
     def epsilon(self):
         return self.sess.run(self._epsilon)
-
-    def _convert(self, minibatch):
-        'Convert minibatch from namedtuple to multi-dimensional matrix'
-        batch = {
-            'state': [],
-            'reward': [],
-            'action': [],
-        }
-        for block in minibatch:
-            batch['state'].append(block.state)
-            batch['action'].append([1. if _ == block.action else 0. for _ in self.actions])
-            if block.terminal:
-                reward = block.instant
-            else:
-                target = self.sess.run(self.target, feed_dict={self.ipt: np.array([block.next_state])})
-                reward = block.instant + self.gamma * target.max()
-            batch['reward'].append(reward)
-        batch['action'] = np.array(batch['action']).T
-        batch['reward'] = np.array([batch['reward']]).T
-        return batch
 
     def train(self, window=None):
         try:
