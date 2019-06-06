@@ -16,8 +16,8 @@ class DQN(Algo):
             self,
             env,
             typ='FC',
-            layers=(4, 8, 4),
-            activations=(tf.nn.relu, tf.nn.relu, None),
+            layers=[4, 8, 4],
+            activations=(tf.nn.relu, tf.nn.relu, tf.nn.relu, None),
             stddev=5e-2,
             biases=0.1,
     ):
@@ -32,6 +32,7 @@ class DQN(Algo):
         self.gamma = 0.99
         self.stddev = stddev
         self.biases = biases
+        layers.append(self.action_shape)
         layer_params = {
             'typ': typ,
             'layers': layers,
@@ -64,7 +65,7 @@ class DQN(Algo):
             ) for ind, shape in enumerate(layers)
         ]
 
-    def train(self):
+    def train(self, show=False):
         try:
             self.saver.restore(self.sess, self.save_file)
         except ValueError:
@@ -92,17 +93,17 @@ class DQN(Algo):
                     done,
                 ))  # Gaining experience pool
                 self.experience_size += 1
-                self.env.render()
+                if show:
+                    self.env.render()
                 if self.experience_size >= self.batch_size:  # Until it satisfy minibatch size
                     minibatch = random.sample(self.experience_pool, self.batch_size)
                     episode += 1
-                    self.sess.run(tf.assign(self.global_step, episode))
+                    #self.sess.run(tf.assign(self.global_step, episode))
                     batch = self._convert(minibatch)
                     _, loss = self.sess.run(
                         [self.optimizer, self.loss],
                         feed_dict={
                             self.ipt: batch['state'],
-                            self.mask: batch['action'],
                             self.reward: batch['reward'],
                         }
                     )
@@ -124,11 +125,11 @@ class DQN(Algo):
         for block in minibatch:
             batch['state'].append(block.state)
             batch['action'].append(block.action)
-            if block.terminal:
-                reward = block.instant
+            if block.done:
+                reward = block.reward
             else:
                 target = self.sess.run(self.target, feed_dict={self.ipt: np.array([block.next_state])})
-                reward = block.instant + self.gamma * target.max()
+                reward = block.reward + self.gamma * target.max()
             batch['reward'].append(reward)
         batch['action'] = np.array(batch['action']).T
         batch['reward'] = np.array([batch['reward']]).T

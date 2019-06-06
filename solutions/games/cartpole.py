@@ -13,7 +13,7 @@ class Cartpole:
         self.name = 'CartPole-v0'
         self.env = gym.make(self.name)
         self.state_shape = self.env.observation_space.shape[0]
-        self.action_shape = 1
+        self.action_shape = self.env.action_space.n
 
     def random_policy(self, state):
         return self.env.action_space.sample()

@@ -43,7 +43,7 @@ class Algo:
         self._env_info()
         self.regularizer_weight = 0.03
         self.dropout_rate = 0.5
-        self.global_step = tf.Variable(0)
+        #self.global_step = tf.Variable(0, trainable=False)
         if render:
             self.render = self.env.render
         else:
@@ -121,8 +121,9 @@ class Algo:
         return self.__class__.__name__
 
     def __call__(self, state, train=False):
-        raw_action = self.model(state)
-        return raw_action if not train else raw_action + self.rp
+        raw_action = self.model(state.reshape((1, self.state_shape)))
+        ret = raw_action if not train else raw_action + self.rp
+        return ret.argmax()
 
     def _env_info(self):
         print(

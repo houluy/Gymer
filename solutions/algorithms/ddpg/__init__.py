@@ -115,7 +115,7 @@ class DeepDeterministicPolicyGradient(Algo):
         self._copy_weights('critic', 'target_critic')
         self._copy_weights('actor', 'target_actor')
         self.saver = tf.train.Saver()
-        self.save_file = pathlib.Path(__file__).parent.parent.parent / pathlib.Path('models/cartpole/ddpg/model.ckpt')
+        self.save_file = pathlib.Path(__file__).parent.parent.parent / pathlib.Path('models/CartPole-v0/ddpg/model.ckpt')
         try:
             self.saver.restore(self.sess, str(self.save_file))
         except ValueError:
