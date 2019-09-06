@@ -13,23 +13,23 @@ class DQN(Algo):
     }
 
     def __init__(
-            self,
-            env,
-            typ='FC',
-            layers=[4, 8, 4],
-            activations=(tf.nn.relu, tf.nn.relu, tf.nn.relu, None),
-            stddev=5e-2,
-            biases=0.1,
+        self,
+        env,
+        typ='FC',
+        layers=[4, 8, 4],
+        activations=(tf.nn.relu, tf.nn.relu, tf.nn.relu, None),
+        stddev=5e-2,
+        biases=0.1,
     ):
         super().__init__(
             env=env,
         )
         self.ipt = tf.placeholder(tf.float32, shape=(None, self.state_shape))
-        self.reward = tf.placeholder(tf.float32, shape=(None, 1))
-        self.mask = tf.placeholder(tf.float32, shape=(self.action_shape, None))
+        self.action = tf.placeholder(tf.int32, [None])
+        self.y = tf.placeholder(tf.float32, [None])
         self.reg_lambda = 0.03
         self.alpha = 0.3
-        self.gamma = 0.99
+        self.gamma = 0.9
         self.stddev = stddev
         self.biases = biases
         layers.append(self.action_shape)
@@ -42,11 +42,10 @@ class DQN(Algo):
             'regularizer_weight': self.reg_lambda,
             'activation': activations,
         }
-        self.Q = self.build_model(self.ipt, self._define_layers('Q', layer_params.copy()))
-        self.model = lambda state: self.sess.run(self.Q, feed_dict={self.ipt: state})  # This is used for consistency in Algo __call__
+        self.Q_model = self.build_model(self.ipt, self._define_layers('Q', layer_params.copy()))
         self.target = self.build_model(self.ipt, self._define_layers('target', layer_params.copy()))
-        self.loss = tf.reduce_mean(tf.square(self.target + self.gamma*self.reward - self.Q)) + sum(tf.get_collection('losses'))
-        self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+        self.model = lambda state: self.sess.run(self.Q_model, feed_dict={self.ipt: state})  # This is used for consistency in Algo __call__
+        self._define_loss()
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
         self._copy_weights('Q', 'target')
@@ -65,6 +64,18 @@ class DQN(Algo):
             ) for ind, shape in enumerate(layers)
         ]
 
+    def _define_loss(self):
+        # Convert action to one hot vector
+        a_one_hot = tf.one_hot(self.action, self.action_shape, 1.0, 0.0)
+        self.q_value = tf.reduce_sum(tf.multiply(self.Q_model, a_one_hot), reduction_indices=1)
+
+        # Clip the error, the loss is quadratic when the error is in (-1, 1), and linear outside of that region
+        error = tf.abs(self.y - self.q_value)
+        quadratic_part = tf.clip_by_value(error, 0.0, 1.0)
+        linear_part = error - quadratic_part
+        self.loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
+        self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+
     def train(self, show=False):
         try:
             self.saver.restore(self.sess, self.save_file)
@@ -78,13 +89,21 @@ class DQN(Algo):
             print('New game')
         self.env.reset()
         self.lossarr = []
+        self.q_v = []
+        self.ep_rewards = []
         self.experience_size = 0
+        update = 0
         for episode in range(self.train_round):
             state = self.env.reset()
             done = False
+            epoch = 0
+            ep_reward = 0
+            total_loss = 0
+            total_q = 0
             while not done:
                 action = self(state, train=True)
                 next_state, reward, done, info = self.env.step(action)
+                ep_reward += reward
                 self.experience_pool.append(Experience(
                     state,
                     action,
@@ -95,24 +114,40 @@ class DQN(Algo):
                 self.experience_size += 1
                 if show:
                     self.env.render()
+                loss = None
                 if self.experience_size >= self.batch_size:  # Until it satisfy minibatch size
                     minibatch = random.sample(self.experience_pool, self.batch_size)
-                    episode += 1
                     #self.sess.run(tf.assign(self.global_step, episode))
                     batch = self._convert(minibatch)
-                    _, loss = self.sess.run(
-                        [self.optimizer, self.loss],
+                    _, loss, q = self.sess.run(
+                        [self.optimizer, self.loss, self.q_value],
                         feed_dict={
                             self.ipt: batch['state'],
-                            self.reward: batch['reward'],
+                            self.action: batch['action'],
+                            self.y: batch['reward']
                         }
                     )
-                    self.lossarr.append(loss)
+                    total_loss += loss
+                    if update > self.update_round:
+                        update = 0
+                        self._copy_weights("Q", "target")
+                    update += 1
+                    q = q.max()
+                    total_q += q
+                if not (epoch % 5):
+                    print(f'Current epoch {epoch} in episode {episode}, current loss: {loss}')
+                epoch += 1
+            else:
+                self.lossarr.append(total_loss/epoch)
+                self.ep_rewards.append(ep_reward)
+                self.q_v.append(total_q)
             if not (episode % self.info_moment):
-                print(f'Current training epoch: {episode}')
+                print(f'Current training episode: {episode}')
             if not (episode % self.save_round):
                 self.saver.save(self.sess, str(self.save_file))
         self.show_loss()
+        self.show_q()
+        self.show_reward()
         self.env.close()
 
     def _convert(self, minibatch):
@@ -132,11 +167,8 @@ class DQN(Algo):
                 reward = block.reward + self.gamma * target.max()
             batch['reward'].append(reward)
         batch['action'] = np.array(batch['action']).T
-        batch['reward'] = np.array([batch['reward']]).T
+        batch['reward'] = np.array(batch['reward']).T
         return batch
-
-    def model(self, state):
-        pass
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):

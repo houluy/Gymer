@@ -21,10 +21,12 @@ class Algo:
     def __init__(
         self,
         env,
-        info_moment=20,
-        save_round=64,
-        train_round=300,
-        batch_size=256,
+        info_moment=2,
+        save_round=30,
+        train_round=10,
+        update_round=2,
+        epsilon_round=10,
+        batch_size=4,
         pool_size=1024,
         render=True,
     ):
@@ -36,13 +38,18 @@ class Algo:
         self.batch_size = batch_size
         self.info_moment = info_moment
         self.save_round = save_round
+        self.update_round = update_round  # Number of rounds to update parameters of target networks
+        self.epsilon_round = epsilon_round  # Number of rounds to update epsilon
+        self.epsilon = 0.5
+        self.epsilon_step = 0.1
         self.env = env
         self.state_shape = self.env.state_shape
         self.action_shape = self.env.action_shape
         self.model = lambda x: x  # This must be customized in subclass
         self._env_info()
+        self.episode = 0
         self.regularizer_weight = 0.03
-        self.dropout_rate = 0.5
+        self.dropout_rate = 0.9
         #self.global_step = tf.Variable(0, trainable=False)
         if render:
             self.render = self.env.render
@@ -120,10 +127,20 @@ class Algo:
     def __str__(self):
         return self.__class__.__name__
 
+    # def __call__(self, state, train=False):
+    #     raw_action = self.model(state.reshape((1, self.state_shape)))
+    #     ret = raw_action if not train else raw_action + self.rp
+    #     return ret.argmax()
+
     def __call__(self, state, train=False):
-        raw_action = self.model(state.reshape((1, self.state_shape)))
-        ret = raw_action if not train else raw_action + self.rp
-        return ret.argmax()
+        randnum = np.random.rand()
+        if not train or randnum > self.epsilon:
+            action = self.model(state.reshape(1, self.state_shape)).argmax()
+        else:
+            action = self.env.random_policy()
+        if train and not (self.episode % self.epsilon_round):
+            self.epsilon -= self.epsilon_step
+        return action
 
     def _env_info(self):
         print(
@@ -141,11 +158,20 @@ class Algo:
         plt.title('Loss of NN')
         plt.show()
 
+    def show_q(self):
+        plt.figure()
+        plt.plot(self.q_v, label='algo: {}'.format(str(self)))
+        plt.legend()
+        plt.title('Q value')
+        plt.show()
+
     def show_reward(self):
         plt.figure(2)
-        plt.plot(self.rewardarr, label='algo:{}'.format(str(self)))
+        plt.plot(self.ep_rewards, label='algo:{}'.format(str(self)))
+        plt.xlabel('Episode')
+        plt.ylabel('Total reward')
         plt.legend()
-        plt.title('Average reward of RL solution')
+        plt.title('Reward of each episode')
         plt.show()
 
     def _copy_weights(self, src_name, dest_name):

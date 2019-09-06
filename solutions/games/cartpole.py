@@ -15,7 +15,7 @@ class Cartpole:
         self.state_shape = self.env.observation_space.shape[0]
         self.action_shape = self.env.action_space.n
 
-    def random_policy(self, state):
+    def random_policy(self, state=None):
         return self.env.action_space.sample()
 
     def run(
