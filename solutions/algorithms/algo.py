@@ -21,14 +21,15 @@ class Algo:
     def __init__(
         self,
         env,
-        info_moment=2,
+        info_moment=10,
         save_round=30,
         train_round=10,
-        update_round=2,
+        update_round=4,
         epsilon_round=10,
         batch_size=4,
         pool_size=1024,
         render=True,
+        debug=True,
     ):
         self.lossarr = []
         self.rewardarr = []
@@ -43,6 +44,7 @@ class Algo:
         self.epsilon = 0.5
         self.epsilon_step = 0.1
         self.env = env
+        self.state = self.env.reset()
         self.state_shape = self.env.state_shape
         self.action_shape = self.env.action_shape
         self.model = lambda x: x  # This must be customized in subclass
@@ -50,6 +52,7 @@ class Algo:
         self.episode = 0
         self.regularizer_weight = 0.03
         self.dropout_rate = 0.9
+        self.debug = debug
         #self.global_step = tf.Variable(0, trainable=False)
         if render:
             self.render = self.env.render
@@ -120,6 +123,14 @@ class Algo:
             t = getattr(self, key + 'arr', [])
             t.append(val)
 
+    def _show_info(self):
+
+
+    def _update_epsilon(self):
+        epsilon = self.epsilon - self.epsilon_step
+        if epsilon > 0:
+            self.epsilon = epsilon
+
     @property
     def rp(self):
         return np.random.rand(self.action_shape)
@@ -149,6 +160,11 @@ class Algo:
                 self.state_shape,
                 self.action_shape,
             )
+        )
+
+    def _show_info(self):
+        print(
+            f''
         )
 
     def show_loss(self):

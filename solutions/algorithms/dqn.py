@@ -30,6 +30,18 @@ class DQN(Algo):
         self.reg_lambda = 0.03
         self.alpha = 0.3
         self.gamma = 0.9
+        self.reward = 0
+        self.total_q = 0
+        self.total_loss = 0
+        self.train_step = 0  # The step of training process
+        self.episode = 0  # The round of episodic game
+        self.epoch = 0  # The number of epochs in one episode (one game)
+        self.epochs = []  # Epoch list
+        self.run_step = 0  # The total step from the very beginning
+        # run_step = sum(epochs) = train_step + batch_size
+
+        self.reward_arr = []
+        self.q_arr = []
         self.stddev = stddev
         self.biases = biases
         layers.append(self.action_shape)
@@ -67,7 +79,13 @@ class DQN(Algo):
     def _define_loss(self):
         # Convert action to one hot vector
         a_one_hot = tf.one_hot(self.action, self.action_shape, 1.0, 0.0)
-        self.q_value = tf.reduce_sum(tf.multiply(self.Q_model, a_one_hot), reduction_indices=1)
+        self.q_value = tf.reduce_sum(
+            tf.multiply(
+                self.Q_model,
+                a_one_hot
+            ),
+            reduction_indices=1
+        )
 
         # Clip the error, the loss is quadratic when the error is in (-1, 1), and linear outside of that region
         error = tf.abs(self.y - self.q_value)
@@ -75,6 +93,66 @@ class DQN(Algo):
         linear_part = error - quadratic_part
         self.loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+
+    def one_train(self):
+        action = self(self.state, train=True)
+        observation, reward, done, info = self.env.step(action)
+        self.reward += reward
+        done = 1 if done else 0
+        self.experience_pool.append(
+            Experience(
+                self.state,
+                action,
+                reward,
+                observation,
+                done,
+            )
+        )
+        self.run_step += 1
+        self.epoch += 1
+        if self.experience_size < self.pool_size:  # Max number of experiences
+            self.experience_size += 1
+        if self.experience_size >= self.batch_size:  # Ready to train the networks
+            batch = random.sample(self.experience_pool, self.batch_size)
+            batch = self._convert(batch)
+            loss, q, _ = self.sess.run(
+                [self.loss, self.q_value, self.optimizer],
+                feed_dict={
+                    self.ipt: batch['state'],
+                    self.action: batch['action'],
+                    self.y: batch['reward']
+                }
+            )
+            self.total_q += q
+            self.total_loss += loss
+            self.train_round += 1
+        if done:
+            self.episode += 1
+            self.epochs.append(self.epoch)
+            self.epoch = 0
+            self.state = self.env.reset()
+            self.reward_arr.append(self.reward)
+            self.reward = 0
+            if self.debug:
+                assert self.run_step == sum(self.epochs)
+        else:
+            self.state = observation
+        if self.debug:
+            if self.train_round > 0:
+                assert self.run_step == self.train_round + self.batch_size
+        # Update the target network
+        if not (self.train_round % self.update_round):
+            self._update_target()
+        # Update exploration
+        if not (self.train_round % self.epsilon_round):
+            self._update_epsilon()
+        if not (self.train_round % self.info_round):
+            self._show_info()
+        if not (self.train_round % self.stats_round):
+            self._stats()
+
+    def _update_target(self):
+        self._copy_weights("Q", "target")
 
     def train(self, show=False):
         try:
@@ -87,68 +165,65 @@ class DQN(Algo):
             print('FATAL ERROR, start new game')
         except tf.errors.NotFoundError:
             print('New game')
-        self.env.reset()
+        self.state = self.env.reset()
         self.lossarr = []
         self.q_v = []
         self.ep_rewards = []
         self.experience_size = 0
-        update = 0
         for episode in range(self.train_round):
-            state = self.env.reset()
-            done = False
-            epoch = 0
-            ep_reward = 0
-            total_loss = 0
-            total_q = 0
-            while not done:
-                action = self(state, train=True)
-                next_state, reward, done, info = self.env.step(action)
-                ep_reward += reward
-                self.experience_pool.append(Experience(
-                    state,
-                    action,
-                    reward,
-                    next_state,
-                    done,
-                ))  # Gaining experience pool
-                self.experience_size += 1
-                if show:
-                    self.env.render()
-                loss = None
-                if self.experience_size >= self.batch_size:  # Until it satisfy minibatch size
-                    minibatch = random.sample(self.experience_pool, self.batch_size)
-                    #self.sess.run(tf.assign(self.global_step, episode))
-                    batch = self._convert(minibatch)
-                    _, loss, q = self.sess.run(
-                        [self.optimizer, self.loss, self.q_value],
-                        feed_dict={
-                            self.ipt: batch['state'],
-                            self.action: batch['action'],
-                            self.y: batch['reward']
-                        }
-                    )
-                    total_loss += loss
-                    if update > self.update_round:
-                        update = 0
-                        self._copy_weights("Q", "target")
-                    update += 1
-                    q = q.max()
-                    total_q += q
-                if not (epoch % 5):
-                    print(f'Current epoch {epoch} in episode {episode}, current loss: {loss}')
-                epoch += 1
-            else:
-                self.lossarr.append(total_loss/epoch)
-                self.ep_rewards.append(ep_reward)
-                self.q_v.append(total_q)
-            if not (episode % self.info_moment):
-                print(f'Current training episode: {episode}')
-            if not (episode % self.save_round):
-                self.saver.save(self.sess, str(self.save_file))
-        self.show_loss()
-        self.show_q()
-        self.show_reward()
-        self.env.close()
+            self.one_train()
+
+        #     epoch = 0
+        #     ep_reward = 0
+        #     total_loss = 0
+        #     total_q = 0
+        #
+        #         ep_reward += reward
+        #         self.experience_pool.append(Experience(
+        #             state,
+        #             action,
+        #             reward,
+        #             next_state,
+        #             done,
+        #         ))  # Gaining experience pool
+        #         self.experience_size += 1
+        #         if show:
+        #             self.env.render()
+        #         loss = None
+        #         if self.experience_size >= self.batch_size:  # Until it satisfy minibatch size
+        #             minibatch = random.sample(self.experience_pool, self.batch_size)
+        #             #self.sess.run(tf.assign(self.global_step, episode))
+        #             batch = self._convert(minibatch)
+        #             _, loss, q = self.sess.run(
+        #                 [self.optimizer, self.loss, self.q_value],
+        #                 feed_dict={
+        #                     self.ipt: batch['state'],
+        #                     self.action: batch['action'],
+        #                     self.y: batch['reward']
+        #                 }
+        #             )
+        #             total_loss += loss
+        #             update += 1
+        #             if update > self.update_round:
+        #                 update = 0
+        #                 self._copy_weights("Q", "target")
+        #             q = q.max()
+        #             total_q += q
+        #         if not (epoch % 5):
+        #             print(f'Current epoch {epoch} in episode {episode}, current loss: {loss}')
+        #         epoch += 1
+        #     else:
+        #         self.lossarr.append(total_loss/epoch)
+        #         self.ep_rewards.append(ep_reward)
+        #         self.q_v.append(total_q)
+        #     if not (episode % self.info_moment):
+        #         print(f'Current training episode: {episode}')
+        #     if not (episode % self.save_round):
+        #         self.saver.save(self.sess, str(self.save_file))
+        # self.show_loss()
+        # self.show_q()
+        # self.show_reward()
+        # self.env.close()
 
     def _convert(self, minibatch):
         'Convert minibatch from namedtuple to multi-dimensional matrix'
