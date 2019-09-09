@@ -21,12 +21,12 @@ class Algo:
     def __init__(
         self,
         env,
-        info_moment=10,
+        info_round=10,
         save_round=30,
-        train_round=10,
         update_round=4,
         epsilon_round=10,
-        batch_size=4,
+        total_round=3000,
+        batch_size=36,
         pool_size=1024,
         render=True,
         debug=True,
@@ -35,10 +35,11 @@ class Algo:
         self.rewardarr = []
         self.pool_size = pool_size
         self.experience_pool = deque(maxlen=pool_size)
-        self.train_round = train_round
+        self.total_round = total_round
         self.batch_size = batch_size
-        self.info_moment = info_moment
+        self.info_round = info_round
         self.save_round = save_round
+        self.stats_round = 5
         self.update_round = update_round  # Number of rounds to update parameters of target networks
         self.epsilon_round = epsilon_round  # Number of rounds to update epsilon
         self.epsilon = 0.5
@@ -49,7 +50,15 @@ class Algo:
         self.action_shape = self.env.action_shape
         self.model = lambda x: x  # This must be customized in subclass
         self._env_info()
+        self.average_q = []
+        self.average_loss = []
+        self.average_reward = []
+        self.rewards = []
         self.episode = 0
+        self.epoch = 0
+        self.run_step = 0
+        self.train_round = 0
+        self.experience_size = 0
         self.regularizer_weight = 0.03
         self.dropout_rate = 0.9
         self.debug = debug
@@ -123,9 +132,6 @@ class Algo:
             t = getattr(self, key + 'arr', [])
             t.append(val)
 
-    def _show_info(self):
-
-
     def _update_epsilon(self):
         epsilon = self.epsilon - self.epsilon_step
         if epsilon > 0:
@@ -164,26 +170,30 @@ class Algo:
 
     def _show_info(self):
         print(
-            f''
+            f'Training info:\n',
+            f'Run step: {self.run_step}\n'
+            f'Episode: {self.episode},\n'
+            f'Epoch: {self.epoch}\n'
+            f'Train step: {self.train_round}\n\n'
         )
 
     def show_loss(self):
         plt.figure(1)
-        plt.plot(self.lossarr, label='algo:{}'.format(str(self)))
+        plt.plot(self.average_loss, label='algo:{}'.format(str(self)))
         plt.legend()
         plt.title('Loss of NN')
         plt.show()
 
     def show_q(self):
         plt.figure()
-        plt.plot(self.q_v, label='algo: {}'.format(str(self)))
+        plt.plot(self.average_q, label='algo: {}'.format(str(self)))
         plt.legend()
         plt.title('Q value')
         plt.show()
 
-    def show_reward(self):
+    def show_rewards(self):
         plt.figure(2)
-        plt.plot(self.ep_rewards, label='algo:{}'.format(str(self)))
+        plt.plot(self.rewards, label='algo:{}'.format(str(self)))
         plt.xlabel('Episode')
         plt.ylabel('Total reward')
         plt.legend()

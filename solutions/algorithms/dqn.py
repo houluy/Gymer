@@ -40,8 +40,6 @@ class DQN(Algo):
         self.run_step = 0  # The total step from the very beginning
         # run_step = sum(epochs) = train_step + batch_size
 
-        self.reward_arr = []
-        self.q_arr = []
         self.stddev = stddev
         self.biases = biases
         layers.append(self.action_shape)
@@ -95,6 +93,7 @@ class DQN(Algo):
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
 
     def one_train(self):
+        train_start = False
         action = self(self.state, train=True)
         observation, reward, done, info = self.env.step(action)
         self.reward += reward
@@ -113,6 +112,7 @@ class DQN(Algo):
         if self.experience_size < self.pool_size:  # Max number of experiences
             self.experience_size += 1
         if self.experience_size >= self.batch_size:  # Ready to train the networks
+            train_start = True
             batch = random.sample(self.experience_pool, self.batch_size)
             batch = self._convert(batch)
             loss, q, _ = self.sess.run(
@@ -123,15 +123,20 @@ class DQN(Algo):
                     self.y: batch['reward']
                 }
             )
-            self.total_q += q
+            self.total_q += q.mean()
             self.total_loss += loss
             self.train_round += 1
         if done:
+            if train_start:
+                self.average_q.append(self.total_q / self.epoch)
+                self.total_q = 0
+                self.average_loss.append(self.total_loss / self.epoch)
+                self.total_loss = 0
             self.episode += 1
             self.epochs.append(self.epoch)
             self.epoch = 0
             self.state = self.env.reset()
-            self.reward_arr.append(self.reward)
+            self.rewards.append(self.reward)
             self.reward = 0
             if self.debug:
                 assert self.run_step == sum(self.epochs)
@@ -139,7 +144,7 @@ class DQN(Algo):
             self.state = observation
         if self.debug:
             if self.train_round > 0:
-                assert self.run_step == self.train_round + self.batch_size
+                assert self.run_step == self.train_round + self.batch_size - 1
         # Update the target network
         if not (self.train_round % self.update_round):
             self._update_target()
@@ -148,8 +153,8 @@ class DQN(Algo):
             self._update_epsilon()
         if not (self.train_round % self.info_round):
             self._show_info()
-        if not (self.train_round % self.stats_round):
-            self._stats()
+        # if not (self.train_round % self.stats_round):
+        #     self._stats()
 
     def _update_target(self):
         self._copy_weights("Q", "target")
@@ -166,13 +171,12 @@ class DQN(Algo):
         except tf.errors.NotFoundError:
             print('New game')
         self.state = self.env.reset()
-        self.lossarr = []
-        self.q_v = []
-        self.ep_rewards = []
-        self.experience_size = 0
-        for episode in range(self.train_round):
+        for episode in range(self.total_round):
             self.one_train()
-
+        self._show_info()
+        self.show_q()
+        self.show_loss()
+        self.show_rewards()
         #     epoch = 0
         #     ep_reward = 0
         #     total_loss = 0
