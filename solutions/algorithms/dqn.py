@@ -125,6 +125,14 @@ class DQN(Algo):
             )
             self.total_q += q.mean()
             self.total_loss += loss
+            # Update the target network
+            if not (self.train_round % self.update_round):
+                self._update_target()
+            # Update exploration
+            if not (self.train_round % self.epsilon_round):
+                self._update_epsilon()
+            if not (self.train_round % self.info_round):
+                self._show_info()
             self.train_round += 1
         if done:
             if train_start:
@@ -134,9 +142,9 @@ class DQN(Algo):
                 self.total_loss = 0
             self.episode += 1
             self.epochs.append(self.epoch)
-            self.epoch = 0
             self.state = self.env.reset()
-            self.rewards.append(self.reward)
+            self.rewards.append(self.reward / self.epoch)
+            self.epoch = 0
             self.reward = 0
             if self.debug:
                 assert self.run_step == sum(self.epochs)
@@ -145,14 +153,8 @@ class DQN(Algo):
         if self.debug:
             if self.train_round > 0:
                 assert self.run_step == self.train_round + self.batch_size - 1
-        # Update the target network
-        if not (self.train_round % self.update_round):
-            self._update_target()
-        # Update exploration
-        if not (self.train_round % self.epsilon_round):
-            self._update_epsilon()
-        if not (self.train_round % self.info_round):
-            self._show_info()
+        if not (self.train_round % self.save_round):
+            self.saver.save(self.sess, str(self.save_file))
         # if not (self.train_round % self.stats_round):
         #     self._stats()
 
@@ -160,23 +162,26 @@ class DQN(Algo):
         self._copy_weights("Q", "target")
 
     def train(self, show=False):
-        try:
-            self.saver.restore(self.sess, self.save_file)
-        except ValueError:
-            print('First-time train')
-        except tf.errors.InvalidArgumentError:
-            print('New game')
-        except tf.errors.DataLossError:
-            print('FATAL ERROR, start new game')
-        except tf.errors.NotFoundError:
-            print('New game')
+        # try:
+        #     self.saver.restore(self.sess, self.save_file)
+        # except ValueError:
+        #     print('First-time train')
+        # except tf.errors.InvalidArgumentError:
+        #     print('New game')
+        # except tf.errors.DataLossError:
+        #     print('FATAL ERROR, start new game')
+        # except tf.errors.NotFoundError:
+        #     print('New game')
         self.state = self.env.reset()
         for episode in range(self.total_round):
+            if show:
+                self.env.render()
             self.one_train()
         self._show_info()
         self.show_q()
         self.show_loss()
         self.show_rewards()
+        self.saver.save(self.sess, str(self.save_file))
         #     epoch = 0
         #     ep_reward = 0
         #     total_loss = 0

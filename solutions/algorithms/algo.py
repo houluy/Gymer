@@ -21,13 +21,13 @@ class Algo:
     def __init__(
         self,
         env,
-        info_round=10,
-        save_round=30,
+        info_round=500,
+        save_round=2000,
         update_round=4,
-        epsilon_round=10,
-        total_round=3000,
-        batch_size=36,
-        pool_size=1024,
+        epsilon_round=1000,
+        total_round=10000,
+        batch_size=1024,
+        pool_size=4096,
         render=True,
         debug=True,
     ):
@@ -41,9 +41,9 @@ class Algo:
         self.save_round = save_round
         self.stats_round = 5
         self.update_round = update_round  # Number of rounds to update parameters of target networks
-        self.epsilon_round = epsilon_round  # Number of rounds to update epsilon
         self.epsilon = 0.5
-        self.epsilon_step = 0.1
+        self.epsilon_step = 0.02
+        self.epsilon_round = epsilon_round  # Number of rounds to update epsilon
         self.env = env
         self.state = self.env.reset()
         self.state_shape = self.env.state_shape
@@ -105,10 +105,14 @@ class Algo:
         weight_init = tf.truncated_normal_initializer(dtype=tf.float32,
                                                       stddev=stddev)
         bias_init = tf.constant_initializer(bias)
-        weights = tf.get_variable('{}-weights'.format(scope_name),
+        weight_name = f'{scope_name}-weights'
+        bias_name = f'{scope_name}-biases'
+        weights = tf.get_variable(weight_name,
                                   shape=shape, initializer=weight_init)
-        biases = tf.get_variable('{}-biases'.format(scope_name),
+        biases = tf.get_variable(bias_name,
                                  shape=bias_shape, initializer=bias_init)
+        tf.summary.histogram(weight_name, weights)
+        tf.summary.histogram(bias_name, biases)
         if regularizer is not None:
             weights_loss = tf.multiply(tf.nn.l2_loss(weights), wl,
                                        name='weights-loss')
@@ -155,8 +159,6 @@ class Algo:
             action = self.model(state.reshape(1, self.state_shape)).argmax()
         else:
             action = self.env.random_policy()
-        if train and not (self.episode % self.epsilon_round):
-            self.epsilon -= self.epsilon_step
         return action
 
     def _env_info(self):
@@ -174,7 +176,8 @@ class Algo:
             f'Run step: {self.run_step}\n'
             f'Episode: {self.episode},\n'
             f'Epoch: {self.epoch}\n'
-            f'Train step: {self.train_round}\n\n'
+            f'Train step: {self.train_round}\n'
+            f'Epsilon: {self.epsilon}\n'
         )
 
     def show_loss(self):

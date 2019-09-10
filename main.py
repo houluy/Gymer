@@ -11,3 +11,5 @@ c = Cartpole()
 # c.run(ddpg, info=True)
 dqn = DQN(env=c)
 dqn.train()
+
+# c.run(dqn)

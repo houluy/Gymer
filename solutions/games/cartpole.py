@@ -24,6 +24,7 @@ class Cartpole:
         episodes=100,
         info=False,
     ):
+        rewards = []
         for i in range(episodes):
             state = self.env.reset()
             self.env.render()
@@ -37,8 +38,9 @@ class Cartpole:
                 if info:
                     print(f'Info: state: {state}\n next_state: {next_state}\n action: {action}\n done: {done}\n')
                 self.env.render()
-            policy.stats(reward=total_reward)
-        policy.show_reward()
+            else:
+                rewards.append(total_reward)
+        self.show(rewards)
         self.env.close()
 
     def __getattr__(self, key):
@@ -47,6 +49,11 @@ class Cartpole:
     @staticmethod
     def action_wrapper(action):
         return 1 if action > 0.5 else 0
+
+    def show(self, target):
+        plt.figure()
+        plt.plot(target)
+        plt.show()
 
 # class DQN:
 #     def __init__(self):
