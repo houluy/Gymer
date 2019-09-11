@@ -25,14 +25,12 @@ class Algo:
         save_round=2000,
         update_round=4,
         epsilon_round=1000,
-        total_round=10000,
+        total_round=3000,
         batch_size=1024,
         pool_size=4096,
         render=True,
         debug=True,
     ):
-        self.lossarr = []
-        self.rewardarr = []
         self.pool_size = pool_size
         self.experience_pool = deque(maxlen=pool_size)
         self.total_round = total_round

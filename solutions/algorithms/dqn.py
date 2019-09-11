@@ -29,7 +29,7 @@ class DQN(Algo):
         self.y = tf.placeholder(tf.float32, [None])
         self.reg_lambda = 0.03
         self.alpha = 0.3
-        self.gamma = 0.9
+        self.gamma = 0.99
         self.reward = 0
         self.total_q = 0
         self.total_loss = 0
@@ -59,6 +59,8 @@ class DQN(Algo):
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
         self._copy_weights('Q', 'target')
+        # self.merged = tf.summary.merge_all()
+        self.train_writter = tf.summary.FileWriter(r"C:\Users\houlu\PycharmProjects\GYMER\board_logs\train", self.sess.graph)
 
     def _define_layers(self, name, layer_params):
         layers = layer_params.pop('layers')
@@ -91,6 +93,8 @@ class DQN(Algo):
         linear_part = error - quadratic_part
         self.loss = tf.reduce_mean(0.5 * tf.square(quadratic_part) + linear_part)
         self.optimizer = tf.train.AdamOptimizer(self.alpha).minimize(self.loss)
+        tf.summary.scalar("Loss", self.loss)
+        tf.summary.scalar("Q_value", self.q_value)
 
     def one_train(self):
         train_start = False
@@ -133,6 +137,7 @@ class DQN(Algo):
                 self._update_epsilon()
             if not (self.train_round % self.info_round):
                 self._show_info()
+                self._tensorboard(batch, self.train_round // self.info_round)
             self.train_round += 1
         if done:
             if train_start:
@@ -153,8 +158,8 @@ class DQN(Algo):
         if self.debug:
             if self.train_round > 0:
                 assert self.run_step == self.train_round + self.batch_size - 1
-        if not (self.train_round % self.save_round):
-            self.saver.save(self.sess, str(self.save_file))
+        # if not (self.train_round % self.save_round):
+        #     self.saver.save(self.sess, str(self.save_file))
         # if not (self.train_round % self.stats_round):
         #     self._stats()
 
@@ -181,7 +186,7 @@ class DQN(Algo):
         self.show_q()
         self.show_loss()
         self.show_rewards()
-        self.saver.save(self.sess, str(self.save_file))
+        # self.saver.save(self.sess, str(self.save_file))
         #     epoch = 0
         #     ep_reward = 0
         #     total_loss = 0
@@ -253,6 +258,14 @@ class DQN(Algo):
         batch['action'] = np.array(batch['action']).T
         batch['reward'] = np.array(batch['reward']).T
         return batch
+
+    def _tensorboard(self, minibatch, i):
+        loss = self.sess.run([self.loss], feed_dict={
+                    self.ipt: minibatch['state'],
+                    self.action: minibatch['action'],
+                    self.y: minibatch['reward']
+                })
+        self.train_writter.add_summary(loss, i)
 
     # @staticmethod
     # def gen_weights(scope_name, shape, bias_shape, stddev=.1, bias=.1, regularizer=None, wl=None):

@@ -12,4 +12,4 @@ c = Cartpole()
 dqn = DQN(env=c)
 dqn.train()
 
-# c.run(dqn)
+c.run(dqn)
